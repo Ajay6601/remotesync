@@ -20,9 +20,14 @@ class Settings(BaseSettings):
     # Encryption
     ENCRYPTION_KEY: str = "your-encryption-key-32-bytes-long"
     
+    # Environment
+    DEBUG: bool = True
+    
     # AWS (for production)
     AWS_REGION: str = "us-east-1"
     S3_BUCKET: str = "remotesync-files"
+    AWS_ACCESS_KEY_ID: str = ""
+    AWS_SECRET_ACCESS_KEY: str = ""
     
     # WebRTC
     TURN_SERVER_URL: str = "turn:your-turn-server.com:3478"

@@ -1,9 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, update, delete
+from sqlalchemy import select, update, delete, func
 from sqlalchemy.orm import selectinload
 from pydantic import BaseModel
 from typing import List, Optional
+from datetime import datetime
 import uuid
 import secrets
 import string
@@ -103,8 +104,14 @@ async def create_workspace(
     await db.commit()
     
     return WorkspaceResponse(
-        **new_workspace.__dict__,
-        member_count=1
+        id=str(new_workspace.id),
+        name=new_workspace.name,
+        description=new_workspace.description,
+        is_private=new_workspace.is_private,
+        invite_code=new_workspace.invite_code,
+        owner_id=str(new_workspace.owner_id),
+        member_count=1,
+        created_at=new_workspace.created_at
     )
 
 @router.get("/", response_model=List[WorkspaceResponse])
@@ -131,8 +138,14 @@ async def get_user_workspaces(
         
         workspace_responses.append(
             WorkspaceResponse(
-                **workspace.__dict__,
-                member_count=member_count
+                id=str(workspace.id),
+                name=workspace.name,
+                description=workspace.description,
+                is_private=workspace.is_private,
+                invite_code=workspace.invite_code,
+                owner_id=str(workspace.owner_id),
+                member_count=member_count,
+                created_at=workspace.created_at
             )
         )
     
@@ -169,8 +182,14 @@ async def get_workspace(
     member_count = member_count_result.scalar()
     
     return WorkspaceResponse(
-        **workspace.__dict__,
-        member_count=member_count
+        id=str(workspace.id),
+        name=workspace.name,
+        description=workspace.description,
+        is_private=workspace.is_private,
+        invite_code=workspace.invite_code,
+        owner_id=str(workspace.owner_id),
+        member_count=member_count,
+        created_at=workspace.created_at
     )
 
 @router.post("/{workspace_id}/channels", response_model=ChannelResponse)
@@ -209,7 +228,16 @@ async def create_channel(
     await db.commit()
     await db.refresh(new_channel)
     
-    return ChannelResponse.model_validate(new_channel)
+    return ChannelResponse(
+        id=str(new_channel.id),
+        name=new_channel.name,
+        description=new_channel.description,
+        type=new_channel.type,
+        is_private=new_channel.is_private,
+        workspace_id=str(new_channel.workspace_id),
+        created_by=str(new_channel.created_by),
+        created_at=new_channel.created_at
+    )
 
 @router.get("/{workspace_id}/channels", response_model=List[ChannelResponse])
 async def get_workspace_channels(
@@ -244,4 +272,13 @@ async def get_workspace_channels(
     )
     channels = result.scalars().all()
     
-    return [ChannelResponse.model_validate(channel) for channel in channels]
+    return [ChannelResponse(
+        id=str(channel.id),
+        name=channel.name,
+        description=channel.description,
+        type=channel.type,
+        is_private=channel.is_private,
+        workspace_id=str(channel.workspace_id),
+        created_by=str(channel.created_by),
+        created_at=channel.created_at
+    ) for channel in channels]
