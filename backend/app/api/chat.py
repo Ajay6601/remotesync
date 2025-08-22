@@ -356,3 +356,57 @@ async def add_reaction(
             "timestamp": datetime.utcnow().isoformat()
         }
     )
+    
+    return {"message": "Reaction added successfully", "reactions": reactions}
+
+@router.post("/{channel_id}/upload")
+async def upload_file(
+    channel_id: str,
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    # Verify user has access to channel
+    channel_result = await db.execute(
+        select(Channel)
+        .join(workspace_members)
+        .where(
+            (Channel.id == channel_id) &
+            (workspace_members.c.user_id == current_user.id)
+        )
+    )
+    channel = channel_result.scalar_one_or_none()
+    
+    if not channel:
+        raise HTTPException(
+            status_code=403,
+            detail="Access denied to this channel"
+        )
+    
+    # In production, upload to S3
+    # For now, simulate file upload
+    file_id = str(uuid.uuid4())
+    file_url = f"https://remotesync-files.s3.amazonaws.com/{file_id}/{file.filename}"
+    
+    # Create message with file attachment
+    attachment_data = {
+        "file_id": file_id,
+        "filename": file.filename,
+        "size": file.size,
+        "content_type": file.content_type,
+        "url": file_url
+    }
+    
+    new_message = Message(
+        content=f"Shared a file: {file.filename}",
+        message_type=MessageType.FILE,
+        channel_id=channel_id,
+        user_id=current_user.id,
+        attachments=attachment_data
+    )
+    
+    db.add(new_message)
+    await db.commit()
+    await db.refresh(new_message)
+    
+    return {"message": "File uploaded successfully", "attachment": attachment_data}
