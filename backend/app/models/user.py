@@ -29,3 +29,6 @@ class User(Base):
     # ADD MISSING RELATIONSHIPS
     owned_workspaces = relationship("Workspace", back_populates="owner")
     workspaces = relationship("Workspace", secondary="workspace_members", back_populates="members")
+
+    sent_connections = relationship("UserConnection", foreign_keys="UserConnection.requester_id", back_populates="requester")
+    received_connections = relationship("UserConnection", foreign_keys="UserConnection.receiver_id", back_populates="receiver")
