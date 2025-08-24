@@ -1,4 +1,3 @@
-// frontend/src/store/slices/chatSlice.ts
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
 import { apiService } from '../../services/api.ts';
 import { Message } from '../../types';
@@ -25,7 +24,9 @@ export const getChannelMessages = createAsyncThunk(
     limit?: number;
     before?: string;
   }) => {
+    console.log('📥 Loading messages for channel:', channelId);
     const response = await apiService.getChannelMessages(channelId, limit, before);
+    console.log('📥 Messages loaded:', response.length);
     return { channelId, messages: response };
   }
 );
@@ -41,7 +42,9 @@ export const sendMessage = createAsyncThunk(
       parent_message_id?: string;
     };
   }) => {
+    console.log('📤 Sending message to channel:', channelId);
     const response = await apiService.sendMessage(channelId, messageData);
+    console.log('📤 Message sent:', response);
     return { channelId, message: response };
   }
 );
@@ -68,6 +71,14 @@ export const deleteMessage = createAsyncThunk(
   }
 );
 
+export const addReaction = createAsyncThunk(
+  'chat/addReaction',
+  async ({ messageId, emoji }: { messageId: string; emoji: string }) => {
+    const response = await apiService.addReaction(messageId, emoji);
+    return { messageId, emoji, reactions: response.reactions };
+  }
+);
+
 const chatSlice = createSlice({
   name: 'chat',
   initialState,
@@ -75,14 +86,19 @@ const chatSlice = createSlice({
     // WebSocket message handlers
     addMessage: (state, action) => {
       const { channelId, message } = action.payload;
+      console.log('➕ Adding message to state:', message);
       if (!state.messages[channelId]) {
         state.messages[channelId] = [];
       }
-      state.messages[channelId].push(message);
+      // Check if message already exists to avoid duplicates
+      const exists = state.messages[channelId].find(m => m.id === message.id);
+      if (!exists) {
+        state.messages[channelId].push(message);
+        console.log('✅ Message added, total messages:', state.messages[channelId].length);
+      }
     },
     updateMessageInState: (state, action) => {
       const { message } = action.payload;
-      // Find and update message across all channels
       Object.keys(state.messages).forEach(channelId => {
         const messageIndex = state.messages[channelId].findIndex(m => m.id === message.id);
         if (messageIndex !== -1) {
@@ -98,6 +114,8 @@ const chatSlice = createSlice({
     },
     setTyping: (state, action) => {
       const { channelId, userId, isTyping } = action.payload;
+      console.log('⌨️ Typing indicator:', { channelId, userId, isTyping });
+      
       if (!state.typing[channelId]) {
         state.typing[channelId] = [];
       }
@@ -123,6 +141,9 @@ const chatSlice = createSlice({
       const channelId = action.payload;
       delete state.messages[channelId];
     },
+    clearError: (state) => {
+      state.error = null;
+    },
   },
   extraReducers: (builder) => {
     builder
@@ -135,6 +156,7 @@ const chatSlice = createSlice({
         state.loading = false;
         const { channelId, messages } = action.payload;
         state.messages[channelId] = messages;
+        console.log('📥 Messages loaded into state:', messages.length);
       })
       .addCase(getChannelMessages.rejected, (state, action) => {
         state.loading = false;
@@ -143,10 +165,11 @@ const chatSlice = createSlice({
       // Send message
       .addCase(sendMessage.fulfilled, (state, action) => {
         const { channelId, message } = action.payload;
-        if (!state.messages[channelId]) {
-          state.messages[channelId] = [];
-        }
-        // Don't add here since WebSocket will handle it
+        console.log('📤 Message sent successfully:', message);
+        // Don't add here since WebSocket will handle it to avoid duplicates
+      })
+      .addCase(sendMessage.rejected, (state, action) => {
+        state.error = action.error.message || 'Failed to send message';
       })
       // Update message
       .addCase(updateMessage.fulfilled, (state, action) => {
@@ -155,6 +178,23 @@ const chatSlice = createSlice({
           const messageIndex = state.messages[channelId].findIndex(m => m.id === message.id);
           if (messageIndex !== -1) {
             state.messages[channelId][messageIndex] = message;
+          }
+        });
+      })
+      // Delete message
+      .addCase(deleteMessage.fulfilled, (state, action) => {
+        const messageId = action.payload;
+        Object.keys(state.messages).forEach(channelId => {
+          state.messages[channelId] = state.messages[channelId].filter(m => m.id !== messageId);
+        });
+      })
+      // Add reaction
+      .addCase(addReaction.fulfilled, (state, action) => {
+        const { messageId, reactions } = action.payload;
+        Object.keys(state.messages).forEach(channelId => {
+          const messageIndex = state.messages[channelId].findIndex(m => m.id === messageId);
+          if (messageIndex !== -1) {
+            state.messages[channelId][messageIndex].reactions = reactions;
           }
         });
       });
@@ -168,6 +208,7 @@ export const {
   setTyping,
   updateReaction,
   clearChannelMessages,
+  clearError,
 } = chatSlice.actions;
 
 export default chatSlice.reducer;

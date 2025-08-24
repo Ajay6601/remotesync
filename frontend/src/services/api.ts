@@ -195,39 +195,56 @@ class ApiService {
   }
 
   // Task methods
-  async getWorkspaceTasks(workspaceId: string, status?: string, assignedTo?: string) {
-    const params = new URLSearchParams();
-    if (status) params.append('status', status);
-    if (assignedTo) params.append('assigned_to', assignedTo);
-    
-    const response = await this.api.get(`/tasks/${workspaceId}/tasks?${params}`);
+  async getWorkspaceTasks(workspaceId: string) {
+    console.log("API: Loading tasks for workspace:", workspaceId);
+    const url = `/tasks/${workspaceId}/tasks`;
+    console.log("API: Calling URL:", url);
+    const response = await this.api.get(url);
+    console.log("API: Tasks response:", response.data);
     return response.data;
   }
 
   async createTask(workspaceId: string, taskData: {
     title: string;
     description?: string;
-    status?: 'todo' | 'in_progress' | 'in_review' | 'done';
-    priority?: 'low' | 'medium' | 'high' | 'urgent';
+    status?: string;
+    priority?: string;
     assigned_to?: string;
     due_date?: string;
     tags?: string[];
-  }) {
-    const response = await this.api.post(`/tasks/${workspaceId}/tasks`, taskData);
-    return response.data;
+  }) {const backendData = {
+      title: taskData.title,
+      description: taskData.description,
+      status: taskData.status || "todo",
+      priority: taskData.priority || "medium",
+      assigned_to: taskData.assigned_to,
+      due_date: taskData.due_date ? new Date(taskData.due_date).toISOString() : null,
+      tags: taskData.tags
+    };
+  const response = await this.api.post(`/tasks/${workspaceId}/tasks`, backendData);
+      return response.data;
   }
 
   async updateTask(workspaceId: string, taskId: string, taskData: {
-    title?: string;
+    title: string;
     description?: string;
-    status?: 'todo' | 'in_progress' | 'in_review' | 'done';
-    priority?: 'low' | 'medium' | 'high' | 'urgent';
+    status?: string;
+    priority?: string;
     assigned_to?: string;
     due_date?: string;
     tags?: string[];
   }) {
-    const response = await this.api.put(`/tasks/${workspaceId}/tasks/${taskId}`, taskData);
-    return response.data;
+    const backendData = {
+      title: taskData.title,
+      description: taskData.description,
+      status: taskData.status || "todo",
+      priority: taskData.priority || "medium",
+      assigned_to: taskData.assigned_to,
+      due_date: taskData.due_date ? new Date(taskData.due_date).toISOString() : null,
+      tags: taskData.tags
+    };
+  const response = await this.api.post(`/tasks/${workspaceId}/tasks`, backendData);
+      return response.data;
   }
 
   async deleteTask(workspaceId: string, taskId: string) {

@@ -15,6 +15,10 @@ from app.websocket.manager import websocket_manager
 
 router = APIRouter()
 
+
+from sqlalchemy.orm import aliased
+User2 = aliased(User)
+
 class TaskCreate(BaseModel):
     title: str
     description: Optional[str] = None

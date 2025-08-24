@@ -7,6 +7,7 @@ import uuid
 import enum
 from app.core.database import Base
 
+
 class TaskStatus(enum.Enum):
     TODO = "todo"
     IN_PROGRESS = "in_progress"

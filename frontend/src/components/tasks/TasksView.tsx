@@ -136,6 +136,15 @@ const TasksView: React.FC = () => {
     done: tasks.filter(t => t.status === 'done').length,
   };
 
+  const taskData = {
+        title: newTask.title.trim(),
+        description: newTask.description.trim() || undefined,
+        priority: newTask.priority,
+        assigned_to: newTask.assigned_to === "me" ? user?.id : (newTask.assigned_to || undefined),
+        due_date: newTask.due_date ? new Date(newTask.due_date).toISOString() : undefined,
+        tags: newTask.tags.length > 0 ? newTask.tags : undefined,
+      };
+
   const priorityColors = {
     low: 'text-green-600',
     medium: 'text-yellow-600',
