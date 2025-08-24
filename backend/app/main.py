@@ -1,6 +1,7 @@
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from app.api.chat import router as chat_router
 import os
 from contextlib import asynccontextmanager
 from datetime import datetime
