@@ -1,50 +1,9 @@
 import SimplePeer from 'simple-peer';
-import { websocketService } from './websocket';
 
 export class WebRTCService {
   private peers: Map<string, SimplePeer.Instance> = new Map();
   private localStream: MediaStream | null = null;
   private onStreamCallback: ((stream: MediaStream, userId: string) => void) | null = null;
-
-  constructor() {
-    // Listen for WebRTC signaling messages
-    websocketService.onMessage((message) => {
-      if (message.type === 'webrtc_signal') {
-        this.handleSignal(message);
-      }
-    });
-  }
-
-  async initializeMedia(audio = true, video = true): Promise<MediaStream> {
-    try {
-      this.localStream = await navigator.mediaDevices.getUserMedia({
-        audio,
-        video,
-      });
-      return this.localStream;
-    } catch (error) {
-      console.error('Error accessing media devices:', error);
-      throw error;
-    }
-  }
-
-// frontend/src/services/webrtc.ts
-import SimplePeer from 'simple-peer';
-import { websocketService } from './websocket';
-
-export class WebRTCService {
-  private peers: Map<string, SimplePeer.Instance> = new Map();
-  private localStream: MediaStream | null = null;
-  private onStreamCallback: ((stream: MediaStream, userId: string) => void) | null = null;
-
-  constructor() {
-    // Listen for WebRTC signaling messages
-    websocketService.onMessage((message) => {
-      if (message.type === 'webrtc_signal') {
-        this.handleSignal(message);
-      }
-    });
-  }
 
   async initializeMedia(audio = true, video = true): Promise<MediaStream> {
     try {
@@ -74,29 +33,9 @@ export class WebRTCService {
     this.peers.set(targetUserId, peer);
   }
 
-  async acceptCall(fromUserId: string, callId: string): Promise<void> {
-    if (!this.localStream) {
-      await this.initializeMedia();
-    }
-
-    const peer = new SimplePeer({
-      initiator: false,
-      trickle: false,
-      stream: this.localStream!,
-    });
-
-    this.setupPeerEvents(peer, fromUserId, callId);
-    this.peers.set(fromUserId, peer);
-  }
-
   private setupPeerEvents(peer: SimplePeer.Instance, userId: string, callId: string): void {
     peer.on('signal', (data) => {
-      websocketService.sendWebRTCSignal(
-        userId,
-        'signal',
-        data,
-        callId
-      );
+      console.log('WebRTC signal:', data);
     });
 
     peer.on('stream', (stream) => {
@@ -113,15 +52,6 @@ export class WebRTCService {
     peer.on('close', () => {
       this.peers.delete(userId);
     });
-  }
-
-  private handleSignal(message: any): void {
-    const { from_user_id, signal_data, call_id } = message;
-    const peer = this.peers.get(from_user_id);
-
-    if (peer) {
-      peer.signal(signal_data);
-    }
   }
 
   endCall(userId: string): void {

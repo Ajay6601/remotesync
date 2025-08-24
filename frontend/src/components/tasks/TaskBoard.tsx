@@ -1,24 +1,25 @@
 import React from 'react';
 import { motion } from 'framer-motion';
 import { Task } from '../../types';
-import TaskCard from './TaskCard';
+import TaskCard from './TaskCard.tsx';
 
 interface TaskBoardProps {
-  tasks: Task[];
+  tasks: {
+    todo: Task[];
+    in_progress: Task[];
+    in_review: Task[];
+    done: Task[];
+  };
   onTaskUpdate: (taskId: string, updates: any) => void;
 }
 
 const TaskBoard: React.FC<TaskBoardProps> = ({ tasks, onTaskUpdate }) => {
   const columns = [
-    { id: 'todo', title: 'To Do', status: 'todo' },
-    { id: 'in_progress', title: 'In Progress', status: 'in_progress' },
-    { id: 'in_review', title: 'In Review', status: 'in_review' },
-    { id: 'done', title: 'Done', status: 'done' },
+    { id: 'todo', title: 'To Do', status: 'todo', color: 'border-gray-300' },
+    { id: 'in_progress', title: 'In Progress', status: 'in_progress', color: 'border-blue-300' },
+    { id: 'in_review', title: 'In Review', status: 'in_review', color: 'border-yellow-300' },
+    { id: 'done', title: 'Done', status: 'done', color: 'border-green-300' },
   ];
-
-  const getTasksForStatus = (status: string) => {
-    return tasks.filter(task => task.status === status);
-  };
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
@@ -40,7 +41,7 @@ const TaskBoard: React.FC<TaskBoardProps> = ({ tasks, onTaskUpdate }) => {
     <div className="flex-1 overflow-x-auto">
       <div className="flex space-x-6 p-6 min-w-max">
         {columns.map((column) => {
-          const columnTasks = getTasksForStatus(column.status);
+          const columnTasks = tasks[column.status as keyof typeof tasks] || [];
           
           return (
             <div
@@ -49,7 +50,7 @@ const TaskBoard: React.FC<TaskBoardProps> = ({ tasks, onTaskUpdate }) => {
               onDragOver={handleDragOver}
               onDrop={(e) => handleDrop(e, column.status)}
             >
-              <div className="card p-4 h-full">
+              <div className={`bg-white dark:bg-dark-800 rounded-lg shadow-sm border-2 ${column.color} p-4 h-full min-h-96`}>
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="font-semibold text-gray-900 dark:text-white">
                     {column.title}
@@ -59,10 +60,13 @@ const TaskBoard: React.FC<TaskBoardProps> = ({ tasks, onTaskUpdate }) => {
                   </span>
                 </div>
                 
-                <div className="space-y-3 min-h-96">
+                <div className="space-y-3">
                   {columnTasks.map((task, index) => (
-                    <div
+                    <motion.div
                       key={task.id}
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: index * 0.05 }}
                       draggable
                       onDragStart={(e) => handleDragStart(e, task.id)}
                       className="cursor-move"
@@ -71,13 +75,14 @@ const TaskBoard: React.FC<TaskBoardProps> = ({ tasks, onTaskUpdate }) => {
                         task={task}
                         index={index}
                         onUpdate={onTaskUpdate}
+                        viewMode="board"
                       />
-                    </div>
+                    </motion.div>
                   ))}
                   
                   {columnTasks.length === 0 && (
-                    <div className="text-center py-8 text-gray-500 dark:text-gray-400">
-                      <p className="text-sm">No tasks</p>
+                    <div className="text-center py-8 text-gray-500 dark:text-gray-400 border-2 border-dashed border-gray-200 dark:border-dark-600 rounded-lg">
+                      <p className="text-sm">Drop tasks here</p>
                     </div>
                   )}
                 </div>

@@ -2,7 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { formatDistanceToNow } from 'date-fns';
 import { Message } from '../../types';
-import MessageItem from './MessageItem';
+import MessageItem from './MessageItem.tsx';
 
 interface MessageListProps {
   messages: Message[];

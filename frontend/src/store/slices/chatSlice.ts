@@ -1,6 +1,6 @@
 // frontend/src/store/slices/chatSlice.ts
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
-import { apiService } from '../../services/api';
+import { apiService } from '../../services/api.ts';
 import { Message } from '../../types';
 
 interface ChatState {

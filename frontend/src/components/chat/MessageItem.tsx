@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import { formatDistanceToNow } from 'date-fns';
-import { EllipsisHorizontalIcon, ReplyIcon } from '@heroicons/react/24/outline';
+import { EllipsisHorizontalIcon, ArrowUturnLeftIcon } from '@heroicons/react/24/outline';
 import { Message } from '../../types';
 
 interface MessageItemProps {
@@ -114,7 +114,7 @@ const MessageItem: React.FC<MessageItemProps> = ({ message, showAvatar, isOwnMes
           {/* Reply count */}
           {message.reply_count > 0 && (
             <button className="mt-2 text-sm text-primary-600 dark:text-primary-400 hover:underline flex items-center space-x-1">
-              <ReplyIcon className="h-4 w-4" />
+              <ArrowUturnLeftIcon className="h-4 w-4" />
               <span>{message.reply_count} repl{message.reply_count === 1 ? 'y' : 'ies'}</span>
             </button>
           )}
@@ -146,7 +146,7 @@ const MessageItem: React.FC<MessageItemProps> = ({ message, showAvatar, isOwnMes
               😂
             </button>
             <button className="p-1 hover:bg-gray-100 dark:hover:bg-dark-600 rounded">
-              <ReplyIcon className="h-4 w-4 text-gray-600 dark:text-gray-400" />
+              <ArrowUturnLeftIcon className="h-4 w-4 text-gray-600 dark:text-gray-400" />
             </button>
             {isOwnMessage && (
               <button className="p-1 hover:bg-gray-100 dark:hover:bg-dark-600 rounded">

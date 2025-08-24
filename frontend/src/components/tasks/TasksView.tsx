@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
+import { HashtagIcon } from "@heroicons/react/24/outline";
 import {
   PlusIcon,
   FunnelIcon,
@@ -9,14 +10,16 @@ import {
   ClockIcon,
   ExclamationTriangleIcon,
   UserIcon,
+  ViewColumnsIcon,
+  ListBulletIcon,
 } from '@heroicons/react/24/outline';
-import { useAppDispatch, useAppSelector } from '../../hooks/redux';
-import { getWorkspaceTasks, createTask, updateTask } from '../../store/slices/taskSlice';
-import Button from '../ui/Button';
-import Input from '../ui/Input';
-import Modal from '../ui/Modal';
-import TaskCard from './TaskCard';
-import TaskBoard from './TaskBoard';
+import { useAppDispatch, useAppSelector } from '../../hooks/redux.ts';
+import { getWorkspaceTasks, createTask, updateTask } from '../../store/slices/taskSlice.ts';
+import Button from '../ui/Button.tsx';
+import Input from '../ui/Input.tsx';
+import Modal from '../ui/Modal.tsx';
+import TaskCard from './TaskCard.tsx';
+import TaskBoard from './TaskBoard.tsx';
 import toast from 'react-hot-toast';
 
 const TasksView: React.FC = () => {
@@ -41,6 +44,7 @@ const TasksView: React.FC = () => {
   const dispatch = useAppDispatch();
   const { tasks, loading } = useAppSelector((state) => state.task);
   const { user } = useAppSelector((state) => state.auth);
+  const { currentWorkspace } = useAppSelector((state) => state.workspace);
 
   useEffect(() => {
     if (workspaceId) {
@@ -71,17 +75,21 @@ const TasksView: React.FC = () => {
       
       toast.success('Task created successfully!');
       setShowCreateModal(false);
-      setNewTask({
-        title: '',
-        description: '',
-        priority: 'medium',
-        assigned_to: '',
-        due_date: '',
-        tags: [],
-      });
+      resetTaskForm();
     } catch (error: any) {
       toast.error(error.message || 'Failed to create task');
     }
+  };
+
+  const resetTaskForm = () => {
+    setNewTask({
+      title: '',
+      description: '',
+      priority: 'medium',
+      assigned_to: '',
+      due_date: '',
+      tags: [],
+    });
   };
 
   const handleTaskUpdate = async (taskId: string, updates: any) => {
@@ -113,12 +121,33 @@ const TasksView: React.FC = () => {
     return matchesSearch && matchesStatus && matchesPriority && matchesAssignee;
   });
 
+  const tasksByStatus = {
+    todo: filteredTasks.filter(t => t.status === 'todo'),
+    in_progress: filteredTasks.filter(t => t.status === 'in_progress'),
+    in_review: filteredTasks.filter(t => t.status === 'in_review'),
+    done: filteredTasks.filter(t => t.status === 'done'),
+  };
+
   const taskStats = {
     total: tasks.length,
     todo: tasks.filter(t => t.status === 'todo').length,
     in_progress: tasks.filter(t => t.status === 'in_progress').length,
     in_review: tasks.filter(t => t.status === 'in_review').length,
     done: tasks.filter(t => t.status === 'done').length,
+  };
+
+  const priorityColors = {
+    low: 'text-green-600',
+    medium: 'text-yellow-600',
+    high: 'text-orange-600',
+    urgent: 'text-red-600',
+  };
+
+  const statusColors = {
+    todo: 'bg-gray-100 text-gray-800 dark:bg-dark-700 dark:text-gray-300',
+    in_progress: 'bg-blue-100 text-blue-800 dark:bg-blue-800 dark:text-blue-100',
+    in_review: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-800 dark:text-yellow-100',
+    done: 'bg-green-100 text-green-800 dark:bg-green-800 dark:text-green-100',
   };
 
   return (
@@ -140,22 +169,24 @@ const TasksView: React.FC = () => {
             <div className="flex items-center bg-gray-100 dark:bg-dark-700 rounded-lg p-1">
               <button
                 onClick={() => setViewMode('board')}
-                className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                className={`flex items-center px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
                   viewMode === 'board'
                     ? 'bg-white dark:bg-dark-600 text-gray-900 dark:text-white shadow-sm'
                     : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
                 }`}
               >
+                <ViewColumnsIcon className="h-4 w-4 mr-1" />
                 Board
               </button>
               <button
                 onClick={() => setViewMode('list')}
-                className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                className={`flex items-center px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
                   viewMode === 'list'
                     ? 'bg-white dark:bg-dark-600 text-gray-900 dark:text-white shadow-sm'
                     : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
                 }`}
               >
+                <ListBulletIcon className="h-4 w-4 mr-1" />
                 List
               </button>
             </div>
@@ -194,69 +225,107 @@ const TasksView: React.FC = () => {
         </div>
       </div>
 
-      {/* Filters */}
-      <div className="px-6 py-4 bg-white dark:bg-dark-800 border-b border-gray-200 dark:border-dark-700">
-        <div className="flex items-center space-x-4">
-          <div className="flex-1 relative">
-            <MagnifyingGlassIcon className="h-5 w-5 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
-            <Input
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Search tasks..."
-              className="pl-10"
-            />
-          </div>
-          
-          <div className="flex items-center space-x-3">
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              className="input-field"
-            >
-              <option value="all">All Status</option>
-              <option value="todo">To Do</option>
-              <option value="in_progress">In Progress</option>
-              <option value="in_review">In Review</option>
-              <option value="done">Done</option>
-            </select>
+      {/* Filters - Only show if we have tasks */}
+      {tasks.length > 0 && (
+        <div className="px-6 py-4 bg-white dark:bg-dark-800 border-b border-gray-200 dark:border-dark-700">
+          <div className="flex items-center space-x-4">
+            <div className="flex-1 relative">
+              <MagnifyingGlassIcon className="h-5 w-5 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+              <Input
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder="Search tasks..."
+                className="pl-10"
+              />
+            </div>
             
-            <select
-              value={priorityFilter}
-              onChange={(e) => setPriorityFilter(e.target.value)}
-              className="input-field"
-            >
-              <option value="all">All Priority</option>
-              <option value="urgent">Urgent</option>
-              <option value="high">High</option>
-              <option value="medium">Medium</option>
-              <option value="low">Low</option>
-            </select>
-            
-            <select
-              value={assigneeFilter}
-              onChange={(e) => setAssigneeFilter(e.target.value)}
-              className="input-field"
-            >
-              <option value="all">All Assignees</option>
-              <option value="me">My Tasks</option>
-            </select>
+            <div className="flex items-center space-x-3">
+              <FunnelIcon className="h-5 w-5 text-gray-400" />
+              
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                className="input-field min-w-[120px]"
+              >
+                <option value="all">All Status</option>
+                <option value="todo">To Do</option>
+                <option value="in_progress">In Progress</option>
+                <option value="in_review">In Review</option>
+                <option value="done">Done</option>
+              </select>
+              
+              <select
+                value={priorityFilter}
+                onChange={(e) => setPriorityFilter(e.target.value)}
+                className="input-field min-w-[120px]"
+              >
+                <option value="all">All Priority</option>
+                <option value="urgent">Urgent</option>
+                <option value="high">High</option>
+                <option value="medium">Medium</option>
+                <option value="low">Low</option>
+              </select>
+              
+              <select
+                value={assigneeFilter}
+                onChange={(e) => setAssigneeFilter(e.target.value)}
+                className="input-field min-w-[130px]"
+              >
+                <option value="all">All Assignees</option>
+                <option value="me">My Tasks</option>
+                {/* Could add more assignees dynamically */}
+              </select>
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* Content */}
       <div className="flex-1 overflow-hidden">
-        {viewMode === 'board' ? (
-          <TaskBoard tasks={filteredTasks} onTaskUpdate={handleTaskUpdate} />
+        {loading ? (
+          <div className="flex items-center justify-center h-full">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
+            <span className="ml-3 text-gray-600 dark:text-gray-400">Loading tasks...</span>
+          </div>
+        ) : filteredTasks.length === 0 ? (
+          <div className="flex items-center justify-center h-full">
+            <div className="text-center py-12">
+              <CheckCircleIcon className="mx-auto h-12 w-12 text-gray-400" />
+              <h3 className="mt-4 text-lg font-medium text-gray-900 dark:text-white">
+                {tasks.length === 0 ? 'No tasks yet' : 'No matching tasks'}
+              </h3>
+              <p className="mt-2 text-gray-600 dark:text-gray-400">
+                {tasks.length === 0 
+                  ? 'Create your first task to start tracking work'
+                  : 'Try adjusting your search or filter criteria'
+                }
+              </p>
+              {tasks.length === 0 && (
+                <Button className="mt-4" onClick={() => setShowCreateModal(true)}>
+                  <PlusIcon className="h-5 w-5 mr-2" />
+                  Create Task
+                </Button>
+              )}
+            </div>
+          </div>
+        ) : viewMode === 'board' ? (
+          <TaskBoard tasks={tasksByStatus} onTaskUpdate={handleTaskUpdate} />
         ) : (
           <div className="p-6 space-y-4 overflow-y-auto">
             {filteredTasks.map((task, index) => (
-              <TaskCard
+              <motion.div
                 key={task.id}
-                task={task}
-                index={index}
-                onUpdate={handleTaskUpdate}
-              />
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: index * 0.05 }}
+              >
+                <TaskCard
+                  task={task}
+                  index={index}
+                  onUpdate={handleTaskUpdate}
+                  viewMode="list"
+                />
+              </motion.div>
             ))}
           </div>
         )}
@@ -265,7 +334,10 @@ const TasksView: React.FC = () => {
       {/* Create task modal */}
       <Modal
         isOpen={showCreateModal}
-        onClose={() => setShowCreateModal(false)}
+        onClose={() => {
+          setShowCreateModal(false);
+          resetTaskForm();
+        }}
         title="Create New Task"
         size="lg"
       >
@@ -276,6 +348,7 @@ const TasksView: React.FC = () => {
             onChange={(e) => setNewTask({ ...newTask, title: e.target.value })}
             placeholder="Enter task title"
             required
+            autoFocus
           />
           
           <div>
@@ -319,12 +392,31 @@ const TasksView: React.FC = () => {
               />
             </div>
           </div>
+
+          {/* Assignee selection */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              Assign to
+            </label>
+            <select
+              value={newTask.assigned_to}
+              onChange={(e) => setNewTask({ ...newTask, assigned_to: e.target.value })}
+              className="input-field"
+            >
+              <option value="">Unassigned</option>
+              <option value={user?.id}>Assign to me</option>
+              {/* Add workspace members dynamically */}
+            </select>
+          </div>
           
           <div className="flex justify-end space-x-3 pt-4">
             <Button
               type="button"
               variant="secondary"
-              onClick={() => setShowCreateModal(false)}
+              onClick={() => {
+                setShowCreateModal(false);
+                resetTaskForm();
+              }}
             >
               Cancel
             </Button>

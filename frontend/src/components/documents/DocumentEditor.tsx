@@ -8,15 +8,15 @@ import {
   EyeIcon,
   LockClosedIcon,
 } from '@heroicons/react/24/outline';
-import { useAppDispatch, useAppSelector } from '../../hooks/redux';
+import { useAppDispatch, useAppSelector } from '../../hooks/redux.ts';
 import {
   getDocument,
   updateDocument,
   setCurrentDocument,
   updateDocumentContent,
-} from '../../store/slices/documentSlice';
-import { websocketService } from '../../services/websocket';
-import Button from '../ui/Button';
+} from '../../store/slices/documentSlice.ts';
+import { websocketService } from '../../services/websocket.ts';
+import Button from '../ui/Button.tsx';
 import toast from 'react-hot-toast';
 
 interface DocumentEditorProps {

@@ -2,10 +2,10 @@ import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import toast from 'react-hot-toast';
-import { useAppDispatch, useAppSelector } from '../../hooks/redux';
-import { login, clearError } from '../../store/slices/authSlice';
-import Button from '../ui/Button';
-import Input from '../ui/Input';
+import { useAppDispatch, useAppSelector } from '../../hooks/redux.ts';
+import { login, clearError } from '../../store/slices/authSlice.ts';
+import Button from '../ui/Button.tsx';
+import Input from '../ui/Input.tsx';
 
 const Login: React.FC = () => {
   const [email, setEmail] = useState('');

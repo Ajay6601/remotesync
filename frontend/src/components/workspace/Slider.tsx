@@ -12,13 +12,13 @@ import {
   Cog6ToothIcon,
   ArrowLeftOnRectangleIcon,
 } from '@heroicons/react/24/outline';
-import { useAppDispatch, useAppSelector } from '../../hooks/redux';
-import { logout } from '../../store/slices/authSlice';
-import { createChannel } from '../../store/slices/workspaceSlice';
+import { useAppDispatch, useAppSelector } from '../../hooks/redux.ts';
+import { logout } from '../../store/slices/authSlice.ts';
+import { createChannel } from '../../store/slices/workspaceSlice.ts';
 import { Workspace, Channel } from '../../types';
-import Button from '../ui/Button';
-import Modal from '../ui/Modal';
-import Input from '../ui/Input';
+import Button from '../ui/Button.tsx';
+import Modal from '../ui/Modal.tsx';
+import Input from '../ui/Input.tsx';
 import toast from 'react-hot-toast';
 
 interface SidebarProps {

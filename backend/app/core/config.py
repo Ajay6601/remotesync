@@ -3,10 +3,10 @@ from typing import List
 
 class Settings(BaseSettings):
     # Database
-    DATABASE_URL: str = "postgresql://remotesync:password@localhost/remotesync"
+    DATABASE_URL: str = "postgresql://remotesync:password@postgres:5432/remotesync"
     
     # Redis
-    REDIS_URL: str = "redis://localhost:6379"
+    REDIS_URL: str = "redis://redis:6379"
     
     # JWT
     SECRET_KEY: str = "your-secret-key-change-in-production"
@@ -14,25 +14,17 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
     
-    # CORS
-    ALLOWED_HOSTS: List[str] = ["http://localhost:3000", "http://localhost:8000"]
-    
-    # Encryption
-    ENCRYPTION_KEY: str = "your-encryption-key-32-bytes-long"
+    # CORS - FIX THIS
+    ALLOWED_HOSTS: List[str] = [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000", 
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
+        "*"  # Allow all for local development
+    ]
     
     # Environment
     DEBUG: bool = True
-    
-    # AWS (for production)
-    AWS_REGION: str = "us-east-1"
-    S3_BUCKET: str = "remotesync-files"
-    AWS_ACCESS_KEY_ID: str = ""
-    AWS_SECRET_ACCESS_KEY: str = ""
-    
-    # WebRTC
-    TURN_SERVER_URL: str = "turn:your-turn-server.com:3478"
-    TURN_USERNAME: str = "username"
-    TURN_PASSWORD: str = "password"
     
     class Config:
         env_file = ".env"

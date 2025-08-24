@@ -1,10 +1,10 @@
 import { configureStore } from '@reduxjs/toolkit';
-import authSlice from './slices/authSlice';
-import workspaceSlice from './slices/workspaceSlice';
-import chatSlice from './slices/chatSlice';
-import documentSlice from './slices/documentSlice';
-import taskSlice from './slices/taskSlice';
-import uiSlice from './slices/uiSlice';
+import authSlice from './slices/authSlice.ts';
+import workspaceSlice from './slices/workspaceSlice.ts';
+import chatSlice from './slices/chatSlice.ts';
+import documentSlice from './slices/documentSlice.ts';
+import taskSlice from './slices/taskSlice.ts';
+import uiSlice from './slices/uiSlice.ts';
 
 export const store = configureStore({
   reducer: {

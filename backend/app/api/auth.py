@@ -33,9 +33,6 @@ class Token(BaseModel):
     refresh_token: str
     token_type: str = "bearer"
 
-class TokenRefresh(BaseModel):
-    refresh_token: str
-
 class UserResponse(BaseModel):
     id: str
     email: str
@@ -47,8 +44,19 @@ class UserResponse(BaseModel):
     created_at: datetime
     last_active: datetime | None
 
-    class Config:
-        from_attributes = True
+    @classmethod
+    def from_user(cls, user: User):
+        return cls(
+            id=str(user.id),  # Convert UUID to string
+            email=user.email,
+            username=user.username,
+            full_name=user.full_name,
+            is_active=user.is_active,
+            is_verified=user.is_verified,
+            avatar_url=user.avatar_url,
+            created_at=user.created_at,
+            last_active=user.last_active
+        )
 
 # Dependency to get current user
 async def get_current_user(
@@ -97,7 +105,7 @@ async def register(user_data: UserRegister, db: AsyncSession = Depends(get_db)):
     
     # Generate encryption keys for end-to-end encryption
     private_key = generate_key_pair()
-    public_key = generate_key_pair()  # In real implementation, derive from private key
+    public_key = generate_key_pair()
     
     # Create new user
     hashed_password = get_password_hash(user_data.password)
@@ -107,14 +115,14 @@ async def register(user_data: UserRegister, db: AsyncSession = Depends(get_db)):
         full_name=user_data.full_name,
         hashed_password=hashed_password,
         public_key=public_key,
-        private_key_encrypted=private_key  # Should be encrypted with user's password
+        private_key_encrypted=private_key
     )
     
     db.add(new_user)
     await db.commit()
     await db.refresh(new_user)
     
-    return UserResponse.model_validate(new_user)
+    return UserResponse.from_user(new_user)
 
 @router.post("/login", response_model=Token)
 async def login(user_credentials: UserLogin, db: AsyncSession = Depends(get_db)):
@@ -147,41 +155,10 @@ async def login(user_credentials: UserLogin, db: AsyncSession = Depends(get_db))
         refresh_token=refresh_token
     )
 
-@router.post("/refresh", response_model=Token)
-async def refresh_token(token_data: TokenRefresh, db: AsyncSession = Depends(get_db)):
-    user_id = verify_token(token_data.refresh_token, "refresh")
-    
-    if user_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid refresh token"
-        )
-    
-    # Verify user exists and is active
-    result = await db.execute(select(User).where(User.id == user_id))
-    user = result.scalar_one_or_none()
-    
-    if not user or not user.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="User not found or inactive"
-        )
-    
-    # Create new tokens
-    access_token = create_access_token(subject=str(user.id))
-    refresh_token = create_refresh_token(subject=str(user.id))
-    
-    return Token(
-        access_token=access_token,
-        refresh_token=refresh_token
-    )
-
 @router.get("/me", response_model=UserResponse)
 async def get_current_user_info(current_user: User = Depends(get_current_active_user)):
-    return UserResponse.model_validate(current_user)
+    return UserResponse.from_user(current_user)
 
 @router.post("/logout")
 async def logout():
-    # In a real implementation, you might want to blacklist the token
-    # For now, just return success
     return {"message": "Successfully logged out"}

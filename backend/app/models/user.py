@@ -1,5 +1,6 @@
 from sqlalchemy import Column, String, Boolean, DateTime, Text
 from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 import uuid
 from app.core.database import Base
@@ -24,3 +25,7 @@ class User(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     last_active = Column(DateTime(timezone=True))
+
+    # ADD MISSING RELATIONSHIPS
+    owned_workspaces = relationship("Workspace", back_populates="owner")
+    workspaces = relationship("Workspace", secondary="workspace_members", back_populates="members")

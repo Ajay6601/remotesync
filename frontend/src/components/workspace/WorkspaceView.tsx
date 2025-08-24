@@ -1,13 +1,13 @@
 import React, { useEffect } from 'react';
 import { useParams, Routes, Route, Navigate } from 'react-router-dom';
-import { useAppDispatch, useAppSelector } from '../../hooks/redux';
-import { getWorkspace, getWorkspaceChannels, setCurrentWorkspace } from '../../store/slices/workspaceSlice';
-import { websocketService } from '../../services/websocket';
-import Sidebar from './Sidebar';
-import ChatView from '../chat/ChatView';
-import DocumentsView from '../documents/DocumentsView';
-import TasksView from '../tasks/TasksView';
-import LoadingSpinner from '../ui/LoadingSpinner';
+import { useAppDispatch, useAppSelector } from '../../hooks/redux.ts';
+import { getWorkspace, getWorkspaceChannels, setCurrentWorkspace } from '../../store/slices/workspaceSlice.ts';
+import { websocketService } from '../../services/websocket.ts';
+import Sidebar from './Sidebar.tsx';
+import ChatView from '../chat/ChatView.tsx';
+import DocumentsView from '../documents/DocumentsView.tsx';
+import TasksView from '../tasks/TasksView.tsx';
+import LoadingSpinner from '../ui/LoadingSpinner.tsx';
 
 const WorkspaceView: React.FC = () => {
   const { workspaceId } = useParams<{ workspaceId: string }>();

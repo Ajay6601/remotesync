@@ -36,5 +36,3 @@ module.exports = {
   plugins: [],
   darkMode: 'class',
 }
-
-// frontend/src/index.css

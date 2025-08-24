@@ -4,6 +4,7 @@ from fastapi.staticfiles import StaticFiles
 import os
 from contextlib import asynccontextmanager
 from datetime import datetime
+app = FastAPI()
 
 from app.core.config import settings
 from app.core.database import init_db
@@ -16,6 +17,12 @@ from app.api.tasks import router as tasks_router
 from app.websocket.manager import websocket_manager
 from app.api.files import router as files_router
 from app.api.search import router as search_router
+from app.middleware.logging import LoggingMiddleware
+from app.middleware.rate_limiting import RateLimitMiddleware
+from app.api.health import router as health_router
+
+app.add_middleware(LoggingMiddleware)
+app.add_middleware(RateLimitMiddleware)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -50,6 +57,7 @@ app.include_router(documents_router, prefix="/api/documents", tags=["documents"]
 app.include_router(tasks_router, prefix="/api/tasks", tags=["tasks"])
 app.include_router(files_router, prefix="/api/files", tags=["files"])
 app.include_router(search_router, prefix="/api/search", tags=["search"])
+app.include_router(health_router, tags=["health"])
 
 # WebSocket endpoint - FIXED
 @app.websocket("/ws/{workspace_id}")

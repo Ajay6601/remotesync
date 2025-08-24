@@ -7,6 +7,8 @@ class WebSocketService {
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 5;
   private reconnectDelay = 1000;
+  private heartbeatInterval: NodeJS.Timeout | null = null;
+  private reconnectTimeout: NodeJS.Timeout | null = null;
 
   connect(workspaceId: string): Promise<void> {
     return new Promise((resolve, reject) => {
@@ -27,75 +29,120 @@ class WebSocketService {
 
       const WS_URL = process.env.REACT_APP_WS_URL || 'ws://localhost:8000';
       
-      this.socket = io(WS_URL, {
-        path: `/ws/${workspaceId}`,
-        auth: {
-          token: token
-        },
-        transports: ['websocket'],
-        upgrade: true,
-        reconnection: true,
-        reconnectionAttempts: this.maxReconnectAttempts,
-        reconnectionDelay: this.reconnectDelay
-      });
-
+      this.socket = new WebSocket(`${WS_URL}/ws/${workspaceId}?token=${token}`);
       this.currentWorkspaceId = workspaceId;
 
-      this.socket.on('connect', () => {
+      this.socket.onopen = () => {
         console.log(`Connected to workspace ${workspaceId}`);
         this.reconnectAttempts = 0;
+        this.startHeartbeat();
         resolve();
-      });
+      };
 
-      this.socket.on('connect_error', (error) => {
+      this.socket.onerror = (error) => {
         console.error('WebSocket connection error:', error);
-        this.reconnectAttempts++;
-        
-        if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-          reject(new Error('Max reconnection attempts reached'));
+        this.handleReconnection();
+        if (this.reconnectAttempts === 0) {
+          reject(new Error('WebSocket connection failed'));
         }
-      });
+      };
 
-      this.socket.on('disconnect', (reason) => {
-        console.log('WebSocket disconnected:', reason);
-        if (reason === 'io server disconnect') {
-          // Server disconnected, attempt to reconnect
-          this.socket?.connect();
+      this.socket.onclose = (event) => {
+        console.log('WebSocket disconnected:', event.reason);
+        this.cleanup();
+        
+        if (!event.wasClean && this.reconnectAttempts < this.maxReconnectAttempts) {
+          this.handleReconnection();
         }
-      });
+      };
+
+      this.socket.onmessage = (event) => {
+        try {
+          const message = JSON.parse(event.data);
+          this.messageHandlers.forEach(handler => handler(message));
+        } catch (error) {
+          console.error('Failed to parse WebSocket message:', error);
+        }
+      };
     });
   }
 
-  disconnect(): void {
-    if (this.socket) {
-      this.socket.disconnect();
-      this.socket = null;
-      this.currentWorkspaceId = null;
+  private startHeartbeat(): void {
+    this.heartbeatInterval = setInterval(() => {
+      if (this.socket?.readyState === WebSocket.OPEN) {
+        this.socket.send(JSON.stringify({ type: 'ping' }));
+      }
+    }, 30000); // 30 seconds
+  }
+
+  private handleReconnection(): void {
+    if (this.reconnectAttempts < this.maxReconnectAttempts) {
+      const delay = Math.min(
+        this.reconnectDelay * Math.pow(2, this.reconnectAttempts),
+        30000
+      ); // Max 30 seconds
+      
+      this.reconnectTimeout = setTimeout(() => {
+        console.log(`Attempting to reconnect (${this.reconnectAttempts + 1}/${this.maxReconnectAttempts})`);
+        this.reconnectAttempts++;
+        if (this.currentWorkspaceId) {
+          this.connect(this.currentWorkspaceId);
+        }
+      }, delay);
     }
   }
 
-  // Message handling
-  onMessage(callback: (message: WebSocketMessage) => void): void {
-    if (!this.socket) return;
+  private cleanup(): void {
+    if (this.heartbeatInterval) {
+      clearInterval(this.heartbeatInterval);
+      this.heartbeatInterval = null;
+    }
     
-    this.socket.on('message', callback);
+    if (this.reconnectTimeout) {
+      clearTimeout(this.reconnectTimeout);
+      this.reconnectTimeout = null;
+    }
+  }
+
+  disconnect(): void {
+    this.cleanup();
+    
+    if (this.socket) {
+      this.socket.close();
+      this.socket = null;
+      this.currentWorkspaceId = null;
+      this.reconnectAttempts = 0;
+    }
+  }
+
+  private messageHandlers: ((message: WebSocketMessage) => void)[] = [];
+
+  onMessage(callback: (message: WebSocketMessage) => void): void {
+    this.messageHandlers.push(callback);
   }
 
   offMessage(callback?: (message: WebSocketMessage) => void): void {
-    if (!this.socket) return;
-    
     if (callback) {
-      this.socket.off('message', callback);
+      const index = this.messageHandlers.indexOf(callback);
+      if (index > -1) {
+        this.messageHandlers.splice(index, 1);
+      }
     } else {
-      this.socket.off('message');
+      this.messageHandlers = [];
+    }
+  }
+
+  private sendMessage(message: any): void {
+    if (this.socket?.readyState === WebSocket.OPEN) {
+      this.socket.send(JSON.stringify(message));
+    } else {
+      console.warn('WebSocket not connected, message not sent:', message);
     }
   }
 
   // Chat methods
   sendChatMessage(channelId: string, content: string, encryptedContent?: string, messageType = 'text'): void {
-    if (!this.socket) return;
-    
-    this.socket.emit('message', {
+    this.sendMessage({
       type: 'chat_message',
       channel_id: channelId,
       content,
@@ -105,9 +152,7 @@ class WebSocketService {
   }
 
   sendTyping(channelId: string, isTyping = true): void {
-    if (!this.socket) return;
-    
-    this.socket.emit('message', {
+    this.sendMessage({
       type: 'typing',
       channel_id: channelId,
       is_typing: isTyping
@@ -121,10 +166,7 @@ class WebSocketService {
     content?: string;
     length?: number;
     version: number;
-  }): void {
-    if (!this.socket) return;
-    
-    this.socket.emit('message', {
+  }): void {this.sendMessage({
       type: 'document_operation',
       document_id: documentId,
       ...operation
@@ -132,9 +174,7 @@ class WebSocketService {
   }
 
   sendCursorPosition(documentId: string, position: number, selection?: { start: number; end: number }): void {
-    if (!this.socket) return;
-    
-    this.socket.emit('message', {
+    this.sendMessage({
       type: 'cursor_position',
       document_id: documentId,
       position,
@@ -144,9 +184,7 @@ class WebSocketService {
 
   // WebRTC methods
   sendWebRTCSignal(targetUserId: string, signalType: string, signalData: any, callId: string): void {
-    if (!this.socket) return;
-    
-    this.socket.emit('message', {
+    this.sendMessage({
       type: 'webrtc_signal',
       target_user_id: targetUserId,
       signal_type: signalType,
@@ -157,14 +195,24 @@ class WebSocketService {
 
   // Connection status
   isConnected(): boolean {
-    return this.socket?.connected ?? false;
+    return this.socket?.readyState === WebSocket.OPEN;
   }
 
   getCurrentWorkspaceId(): string | null {
     return this.currentWorkspaceId;
   }
+
+  getConnectionState(): string {
+    if (!this.socket) return 'disconnected';
+    
+    switch (this.socket.readyState) {
+      case WebSocket.CONNECTING: return 'connecting';
+      case WebSocket.OPEN: return 'connected';
+      case WebSocket.CLOSING: return 'closing';
+      case WebSocket.CLOSED: return 'disconnected';
+      default: return 'unknown';
+    }
+  }
 }
 
 export const websocketService = new WebSocketService();
-
-
