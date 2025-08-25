@@ -1,376 +1,572 @@
-import React, { useEffect, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import React, { useEffect, useState, useRef } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { 
-  PlusIcon, 
-  DocumentTextIcon, 
-  MagnifyingGlassIcon,
-  FunnelIcon,
+import {
+  ArrowLeftIcon,
+  ShareIcon,
   EyeIcon,
   LockClosedIcon,
-  PencilIcon,
-  ShareIcon,
+  BookmarkIcon,
+  PrinterIcon,
+  CloudArrowUpIcon,
+  DocumentDuplicateIcon,
+  TrashIcon,
+  Cog6ToothIcon,
+  BoltIcon,
+  UserIcon,
 } from '@heroicons/react/24/outline';
 import { useAppDispatch, useAppSelector } from '../../hooks/redux.ts';
-import { getWorkspaceDocuments, createDocument } from '../../store/slices/documentSlice.ts';
+import { getDocument, updateDocument, setCurrentDocument } from '../../store/slices/documentSlice.ts';
 import Button from '../ui/Button.tsx';
-import Input from '../ui/Input.tsx';
-import Modal from '../ui/Modal.tsx';
-import DocumentEditor from './DocumentEditor.tsx'; // Add this import
 import toast from 'react-hot-toast';
 
-const DocumentsView: React.FC = () => {
-  const { workspaceId, documentId } = useParams<{ workspaceId: string; documentId?: string }>();
-  const [showCreateModal, setShowCreateModal] = useState(false);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [filterType, setFilterType] = useState('all');
-  const [newDocumentTitle, setNewDocumentTitle] = useState('');
-  const [newDocumentPublic, setNewDocumentPublic] = useState(false);
+const DocumentEditor: React.FC = () => {
+  const { workspaceId, documentId } = useParams<{ workspaceId: string; documentId: string }>();
+  const [content, setContent] = useState('');
+  const [title, setTitle] = useState('');
+  const [isEditing, setIsEditing] = useState(false);
+  const [saveTimeout, setSaveTimeout] = useState<NodeJS.Timeout | null>(null);
+  const [wordCount, setWordCount] = useState(0);
+  const [characterCount, setCharacterCount] = useState(0);
+  const [lastSaved, setLastSaved] = useState<Date | null>(null);
+  const [isAutoSaving, setIsAutoSaving] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const titleInputRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
   const dispatch = useAppDispatch();
-  const { documents, loading } = useAppSelector((state) => state.document);
-  const { currentWorkspace } = useAppSelector((state) => state.workspace);
+  
+  const { currentDocument, loading } = useAppSelector((state) => state.document);
+  const { user } = useAppSelector((state) => state.auth);
 
   useEffect(() => {
-    if (workspaceId) {
-      dispatch(getWorkspaceDocuments(workspaceId));
+    if (documentId) {
+      console.log('🏠 Loading document:', documentId);
+      dispatch(getDocument(documentId));
     }
-  }, [workspaceId, dispatch]);
-
-  const handleCreateDocument = async (e: React.FormEvent) => {
-    e.preventDefault();
     
-    if (!newDocumentTitle.trim() || !workspaceId) {
-      toast.error('Document title is required');
-      return;
+    return () => {
+      console.log('🧹 Cleaning up document editor');
+      dispatch(setCurrentDocument(null));
+      if (saveTimeout) {
+        clearTimeout(saveTimeout);
+      }
+    };
+  }, [documentId, dispatch]);
+
+  useEffect(() => {
+    if (currentDocument) {
+      console.log('📄 Document loaded:', currentDocument.title);
+      setContent(currentDocument.content);
+      setTitle(currentDocument.title);
+      updateStats(currentDocument.content);
+      setLastSaved(new Date(currentDocument.updated_at || currentDocument.created_at));
+    }
+  }, [currentDocument]);
+
+  const updateStats = (text: string) => {
+    setCharacterCount(text.length);
+    const words = text.trim().split(/\s+/).filter(word => word.length > 0);
+    setWordCount(words.length);
+  };
+
+  const handleContentChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const newContent = e.target.value;
+    setContent(newContent);
+    setIsEditing(true);
+    updateStats(newContent);
+
+    // Auto-resize textarea
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+      textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
     }
 
+    // Auto-save after 3 seconds of inactivity
+    if (saveTimeout) {
+      clearTimeout(saveTimeout);
+    }
+    
+    setSaveTimeout(
+      setTimeout(() => {
+        handleAutoSave(newContent, title);
+      }, 3000)
+    );
+  };
+
+  const handleTitleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const newTitle = e.target.value;
+    setTitle(newTitle);
+    setIsEditing(true);
+
+    // Auto-save title changes
+    if (saveTimeout) {
+      clearTimeout(saveTimeout);
+    }
+    
+    setSaveTimeout(
+      setTimeout(() => {
+        handleAutoSave(content, newTitle);
+      }, 2000)
+    );
+  };
+
+  const handleAutoSave = async (contentToSave: string, titleToSave: string) => {
+    if (!currentDocument) return;
+
+    setIsAutoSaving(true);
     try {
-      const newDoc = await dispatch(createDocument({
-        workspaceId,
+      await dispatch(updateDocument({
+        documentId: currentDocument.id,
         documentData: {
-          title: newDocumentTitle.trim(),
-          content: '',
-          is_public: newDocumentPublic,
+          title: titleToSave || 'Untitled Document',
+          content: contentToSave,
         },
       })).unwrap();
       
-      toast.success('Document created successfully!');
-      setShowCreateModal(false);
-      setNewDocumentTitle('');
-      setNewDocumentPublic(false);
-      navigate(`/workspace/${workspaceId}/documents/${newDoc.id}`);
+      setIsEditing(false);
+      setLastSaved(new Date());
+      console.log('💾 Document auto-saved');
     } catch (error: any) {
-      toast.error(error.message || 'Failed to create document');
+      console.error('❌ Auto-save failed:', error);
+      toast.error('Failed to save document');
+    } finally {
+      setIsAutoSaving(false);
     }
   };
 
-  const resetCreateForm = () => {
-    setNewDocumentTitle('');
-    setNewDocumentPublic(false);
+  const handleManualSave = async () => {
+    if (saveTimeout) {
+      clearTimeout(saveTimeout);
+      setSaveTimeout(null);
+    }
+    
+    setIsAutoSaving(true);
+    try {
+      await handleAutoSave(content, title);
+      toast.success('Document saved manually');
+    } finally {
+      setIsAutoSaving(false);
+    }
   };
 
-  const filteredDocuments = documents.filter(doc => {
-    const matchesSearch = doc.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         (doc.content && doc.content.toLowerCase().includes(searchTerm.toLowerCase()));
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    // Ctrl+S to save
+    if (e.ctrlKey && e.key === 's') {
+      e.preventDefault();
+      handleManualSave();
+    }
     
-    const matchesFilter = filterType === 'all' || 
-                         (filterType === 'public' && doc.is_public) ||
-                         (filterType === 'private' && !doc.is_public) ||
-                         (filterType === 'recent' && new Date(doc.updated_at || doc.created_at).getTime() > Date.now() - 7 * 24 * 60 * 60 * 1000);
+    // Ctrl+B for bold (future feature)
+    if (e.ctrlKey && e.key === 'b') {
+      e.preventDefault();
+      // Add bold formatting
+    }
     
-    return matchesSearch && matchesFilter;
-  });
-
-  const documentStats = {
-    total: documents.length,
-    public: documents.filter(d => d.is_public).length,
-    private: documents.filter(d => !d.is_public).length,
-    recent: documents.filter(d => new Date(d.updated_at || d.created_at).getTime() > Date.now() - 7 * 24 * 60 * 60 * 1000).length,
+    // Tab for indentation
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      const start = (e.target as HTMLTextAreaElement).selectionStart;
+      const end = (e.target as HTMLTextAreaElement).selectionEnd;
+      const newContent = content.substring(0, start) + '    ' + content.substring(end);
+      setContent(newContent);
+      
+      // Restore cursor position
+      setTimeout(() => {
+        if (textareaRef.current) {
+          textareaRef.current.selectionStart = textareaRef.current.selectionEnd = start + 4;
+        }
+      }, 0);
+    }
   };
 
-  // If viewing a specific document, show the editor
-  if (documentId) {
-    return <DocumentEditor documentId={documentId} />;
+  const handleExport = () => {
+    const blob = new Blob([content], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${title || 'document'}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    toast.success('Document exported!');
+  };
+
+  const handleShare = async () => {
+    const shareUrl = `${window.location.origin}/workspace/${workspaceId}/documents/${documentId}`;
+    
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: title || 'RemoteSync Document',
+          text: `Check out this document: ${title}`,
+          url: shareUrl,
+        });
+      } catch (error) {
+        // Fallback to clipboard
+        navigator.clipboard.writeText(shareUrl);
+        toast.success('Document link copied to clipboard!');
+      }
+    } else {
+      navigator.clipboard.writeText(shareUrl);
+      toast.success('Document link copied to clipboard!');
+    }
+  };
+
+  const handlePrint = () => {
+    const printWindow = window.open('', '_blank');
+    if (printWindow) {
+      printWindow.document.write(`
+        <html>
+          <head>
+            <title>${title || 'Document'}</title>
+            <style>
+              body { font-family: Georgia, serif; line-height: 1.6; margin: 40px; }
+              h1 { color: #333; border-bottom: 2px solid #333; padding-bottom: 10px; }
+              pre { white-space: pre-wrap; }
+            </style>
+          </head>
+          <body>
+            <h1>${title || 'Untitled Document'}</h1>
+            <pre>${content}</pre>
+          </body>
+        </html>
+      `);
+      printWindow.document.close();
+      printWindow.print();
+    }
+  };
+
+  if (loading || !currentDocument) {
+    return (
+      <div className="flex-1 flex items-center justify-center bg-white">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+          <p className="mt-4 text-gray-600 font-medium">Loading document...</p>
+          <p className="text-sm text-gray-500 mt-1">Please wait while we fetch your document</p>
+        </div>
+      </div>
+    );
   }
 
+  const estimatedReadTime = Math.max(1, Math.ceil(wordCount / 250)); // 250 words per minute
+  const canEdit = currentDocument.created_by === user?.id || !currentDocument.is_public;
+
   return (
-    <div className="flex-1 flex flex-col bg-gray-50 dark:bg-dark-900">
+    <div className="flex-1 flex flex-col bg-white max-h-screen">
       {/* Header */}
-      <div className="px-6 py-4 border-b border-gray-200 dark:border-dark-700 bg-white dark:bg-dark-800">
+      <div className="flex-shrink-0 px-6 py-4 border-b border-gray-200 bg-white">
         <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
-              Documents
-            </h1>
-            <p className="text-gray-600 dark:text-gray-400 mt-1">
-              Collaborate on documents in real-time
-            </p>
+          <div className="flex items-center space-x-4 flex-1">
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => navigate(`/workspace/${workspaceId}/documents`)}
+              title="Back to Documents"
+            >
+              <ArrowLeftIcon className="h-4 w-4" />
+            </Button>
+            
+            <input
+              ref={titleInputRef}
+              value={title}
+              onChange={handleTitleChange}
+              onKeyDown={handleKeyDown}
+              className="text-xl font-bold bg-transparent border-none outline-none text-gray-900 flex-1 focus:ring-2 focus:ring-blue-500 rounded px-2 py-1 hover:bg-gray-50"
+              placeholder="Untitled Document"
+              disabled={!canEdit}
+            />
+            
+            <div className="flex items-center space-x-2">
+              {currentDocument.is_public ? (
+                <div className="flex items-center space-x-1 text-green-600 bg-green-50 px-2 py-1 rounded-md">
+                  <EyeIcon className="h-4 w-4" />
+                  <span className="text-sm font-medium">Public</span>
+                </div>
+              ) : (
+                <div className="flex items-center space-x-1 text-gray-500 bg-gray-50 px-2 py-1 rounded-md">
+                  <LockClosedIcon className="h-4 w-4" />
+                  <span className="text-sm font-medium">Private</span>
+                </div>
+              )}
+              
+              {currentDocument.collaborators && currentDocument.collaborators.length > 0 && (
+                <div className="flex items-center space-x-1 text-blue-600 bg-blue-50 px-2 py-1 rounded-md">
+                  <UserIcon className="h-4 w-4" />
+                  <span className="text-sm font-medium">{currentDocument.collaborators.length} active</span>
+                </div>
+              )}
+            </div>
           </div>
           
-          <Button onClick={() => setShowCreateModal(true)}>
-            <PlusIcon className="h-5 w-5 mr-2" />
-            New Document
-          </Button>
+          <div className="flex items-center space-x-2">
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={handleExport}
+              title="Export document"
+            >
+              <CloudArrowUpIcon className="h-4 w-4" />
+            </Button>
+            
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={handlePrint}
+              title="Print document"
+            >
+              <PrinterIcon className="h-4 w-4" />
+            </Button>
+            
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={handleShare}
+              title="Share document"
+            >
+              <ShareIcon className="h-4 w-4" />
+            </Button>
+            
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => setShowSettings(!showSettings)}
+              title="Document settings"
+            >
+              <Cog6ToothIcon className="h-4 w-4" />
+            </Button>
+            
+            <Button
+              onClick={handleManualSave}
+              disabled={!isEditing}
+              loading={isAutoSaving}
+              size="sm"
+              className="min-w-20"
+            >
+              {isAutoSaving ? (
+                <BoltIcon className="h-4 w-4 mr-1" />
+              ) : null}
+              {isAutoSaving ? 'Saving...' : isEditing ? 'Save' : 'Saved'}
+            </Button>
+          </div>
+        </div>
+        
+        {/* Document metadata */}
+        <div className="mt-3 flex items-center justify-between text-sm text-gray-500">
+          <div className="flex items-center space-x-4">
+            <span>Version {currentDocument.version}</span>
+            <span>•</span>
+            <span>Created by {currentDocument.creator_name}</span>
+            <span>•</span>
+            <span>
+              {lastSaved ? `Last saved ${lastSaved.toLocaleTimeString()}` : 'Never saved'}
+            </span>
+          </div>
+          
+          <div className="flex items-center space-x-4">
+            <span>{wordCount.toLocaleString()} words</span>
+            <span>•</span>
+            <span>{characterCount.toLocaleString()} characters</span>
+            <span>•</span>
+            <span>{estimatedReadTime} min read</span>
+          </div>
         </div>
       </div>
 
-      {/* Stats */}
-      {documents.length > 0 && (
-        <div className="px-6 py-4 bg-white dark:bg-dark-800 border-b border-gray-200 dark:border-dark-700">
-          <div className="grid grid-cols-4 gap-4">
-            <div className="text-center">
-              <div className="text-2xl font-bold text-gray-900 dark:text-white">{documentStats.total}</div>
-              <div className="text-sm text-gray-600 dark:text-gray-400">Total</div>
+      {/* Editor */}
+      <div className="flex-1 relative overflow-hidden">
+        <textarea
+          ref={textareaRef}
+          value={content}
+          onChange={handleContentChange}
+          onKeyDown={handleKeyDown}
+          placeholder={`Start writing your document...\n\nTips:\n• Use Ctrl+S to save manually\n• Use Tab for indentation\n• Content auto-saves every 3 seconds`}
+          disabled={!canEdit}
+          className={`w-full h-full resize-none border-none outline-none p-8 text-gray-900 text-lg leading-relaxed font-serif focus:ring-0 ${
+            !canEdit ? 'bg-gray-50 cursor-not-allowed' : 'bg-white'
+          }`}
+          style={{ 
+            minHeight: 'calc(100vh - 200px)',
+            fontFamily: 'Georgia, "Times New Roman", Times, serif',
+            lineHeight: '1.8'
+          }}
+        />
+        
+        {/* Status indicators */}
+        <div className="absolute top-4 right-4 flex flex-col space-y-2">
+          {/* Auto-save indicator */}
+          {isEditing && (
+            <motion.div
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              className="bg-yellow-100 border border-yellow-300 text-yellow-800 px-3 py-2 rounded-lg text-sm shadow-sm"
+            >
+              <div className="flex items-center space-x-2">
+                <div className="w-2 h-2 bg-yellow-500 rounded-full animate-pulse"></div>
+                <span className="font-medium">Unsaved changes</span>
+              </div>
+            </motion.div>
+          )}
+          
+          {/* Auto-saving indicator */}
+          {isAutoSaving && (
+            <motion.div
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              className="bg-blue-100 border border-blue-300 text-blue-800 px-3 py-2 rounded-lg text-sm shadow-sm"
+            >
+              <div className="flex items-center space-x-2">
+                <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-blue-600"></div>
+                <span className="font-medium">Saving...</span>
+              </div>
+            </motion.div>
+          )}
+          
+          {/* Read-only indicator */}
+          {!canEdit && (
+            <div className="bg-gray-100 border border-gray-300 text-gray-700 px-3 py-2 rounded-lg text-sm shadow-sm">
+              <div className="flex items-center space-x-2">
+                <EyeIcon className="h-3 w-3" />
+                <span className="font-medium">Read-only</span>
+              </div>
             </div>
-            <div className="text-center">
-              <div className="text-2xl font-bold text-green-600">{documentStats.public}</div>
-              <div className="text-sm text-gray-600 dark:text-gray-400">Public</div>
-            </div>
-            <div className="text-center">
-              <div className="text-2xl font-bold text-blue-600">{documentStats.private}</div>
-              <div className="text-sm text-gray-600 dark:text-gray-400">Private</div>
-            </div>
-            <div className="text-center">
-              <div className="text-2xl font-bold text-purple-600">{documentStats.recent}</div>
-              <div className="text-sm text-gray-600 dark:text-gray-400">Recent</div>
-            </div>
+          )}
+        </div>
+        
+        {/* Keyboard shortcuts help */}
+        <div className="absolute bottom-4 left-4 bg-white bg-opacity-90 rounded-lg px-3 py-2 text-xs text-gray-500 shadow-sm border border-gray-200">
+          <div className="space-y-1">
+            <div><kbd className="font-mono bg-gray-100 px-1 rounded">Ctrl+S</kbd> Save manually</div>
+            <div><kbd className="font-mono bg-gray-100 px-1 rounded">Tab</kbd> Indent</div>
+            <div><kbd className="font-mono bg-gray-100 px-1 rounded">Ctrl+Z</kbd> Undo</div>
           </div>
         </div>
-      )}
 
-      {/* Search and filters */}
-      {documents.length > 0 && (
-        <div className="px-6 py-4 bg-white dark:bg-dark-800 border-b border-gray-200 dark:border-dark-700">
-          <div className="flex items-center space-x-4">
-            <div className="flex-1 relative">
-              <MagnifyingGlassIcon className="h-5 w-5 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
-              <Input
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                placeholder="Search documents..."
-                className="pl-10"
-              />
-            </div>
-            
-            <div className="flex items-center space-x-2">
-              <FunnelIcon className="h-5 w-5 text-gray-400" />
-              <select
-                value={filterType}
-                onChange={(e) => setFilterType(e.target.value)}
-                className="input-field min-w-[140px]"
+        {/* Collaboration indicators */}
+        {currentDocument.collaborators && currentDocument.collaborators.length > 0 && (
+          <div className="absolute bottom-4 right-4 flex items-center space-x-2">
+            {currentDocument.collaborators.slice(0, 3).map((collaborator, index) => (
+              <div
+                key={collaborator}
+                className="w-8 h-8 rounded-full bg-green-500 border-2 border-white flex items-center justify-center text-white text-sm font-medium shadow-sm"
+                style={{ zIndex: 10 - index, marginLeft: index > 0 ? '-8px' : '0' }}
+                title={`${collaborator} is editing`}
               >
-                <option value="all">All Documents</option>
-                <option value="recent">Recent (7 days)</option>
-                <option value="public">Public</option>
-                <option value="private">Private</option>
-              </select>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Documents list */}
-      <div className="flex-1 overflow-y-auto p-6">
-        {loading ? (
-          <div className="flex items-center justify-center h-full">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
-            <span className="ml-3 text-gray-600 dark:text-gray-400">Loading documents...</span>
-          </div>
-        ) : filteredDocuments.length === 0 ? (
-          <div className="text-center py-12">
-            <DocumentTextIcon className="mx-auto h-12 w-12 text-gray-400" />
-            <h3 className="mt-4 text-lg font-medium text-gray-900 dark:text-white">
-              {documents.length === 0 ? 'No documents yet' : 'No matching documents'}
-            </h3>
-            <p className="mt-2 text-gray-600 dark:text-gray-400">
-              {documents.length === 0 
-                ? 'Create your first document to start collaborating'
-                : 'Try adjusting your search or filter criteria'
-              }
-            </p>
-            {documents.length === 0 && (
-              <Button className="mt-4" onClick={() => setShowCreateModal(true)}>
-                <PlusIcon className="h-5 w-5 mr-2" />
-                Create Document
-              </Button>
-            )}
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-            {filteredDocuments.map((document, index) => (
-              <motion.div
-                key={document.id}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: index * 0.1 }}
-                className="relative bg-white dark:bg-dark-800 rounded-lg shadow-sm border border-gray-200 dark:border-dark-700 p-6 hover:shadow-lg transition-all duration-200 cursor-pointer transform hover:-translate-y-1 group"
-                onClick={() => navigate(`/workspace/${workspaceId}/documents/${document.id}`)}
-              >
-                <div className="flex items-start justify-between mb-4">
-                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white truncate flex-1 group-hover:text-primary-600 dark:group-hover:text-primary-400 transition-colors pr-2">
-                    {document.title}
-                  </h3>
-                  <div className="flex items-center space-x-2 flex-shrink-0">
-                    {document.is_public ? (
-                      <div className="flex items-center space-x-1 text-green-600">
-                        <EyeIcon className="h-4 w-4" />
-                        <span className="text-xs font-medium">Public</span>
-                      </div>
-                    ) : (
-                      <div className="flex items-center space-x-1 text-gray-500">
-                        <LockClosedIcon className="h-4 w-4" />
-                        <span className="text-xs font-medium">Private</span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-                
-                <p className="text-gray-600 dark:text-gray-400 text-sm mb-4 line-clamp-3 leading-relaxed">
-                  {document.content && document.content.length > 0 
-                    ? document.content.substring(0, 150) + (document.content.length > 150 ? '...' : '')
-                    : 'No content yet. Click to start editing.'
-                  }
-                </p>
-                
-                <div className="flex items-center justify-between text-sm text-gray-500 dark:text-gray-400">
-                  <div className="flex items-center space-x-2">
-                    <div className="w-6 h-6 bg-primary-500 rounded-full flex items-center justify-center">
-                      <span className="text-white text-xs font-medium">
-                        {(document.creator_name || 'U').charAt(0).toUpperCase()}
-                      </span>
-                    </div>
-                    <span className="font-medium truncate max-w-20">{document.creator_name || 'Unknown'}</span>
-                    {document.version && (
-                      <>
-                        <span>•</span>
-                        <span>v{document.version}</span>
-                      </>
-                    )}
-                  </div>
-                  
-                  <div className="flex items-center space-x-2 text-right">
-                    {document.collaborators && document.collaborators.length > 0 && (
-                      <div className="flex items-center space-x-1 text-blue-600">
-                        <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
-                        <span className="text-xs">{document.collaborators.length} active</span>
-                      </div>
-                    )}
-                    <span className="text-xs">
-                      {new Date(document.updated_at || document.created_at).toLocaleDateString()}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Hover actions */}
-                <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-                  <div className="flex space-x-1">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        navigate(`/workspace/${workspaceId}/documents/${document.id}/edit`);
-                      }}
-                      className="p-1 bg-white dark:bg-dark-700 rounded shadow-md hover:bg-gray-50 dark:hover:bg-dark-600"
-                      title="Quick edit"
-                    >
-                      <PencilIcon className="h-4 w-4 text-gray-600 dark:text-gray-400" />
-                    </button>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        navigator.clipboard.writeText(`${window.location.origin}/workspace/${workspaceId}/documents/${document.id}`);
-                        toast.success('Document link copied!');
-                      }}
-                      className="p-1 bg-white dark:bg-dark-700 rounded shadow-md hover:bg-gray-50 dark:hover:bg-dark-600"
-                      title="Share document"
-                    >
-                      <ShareIcon className="h-4 w-4 text-gray-600 dark:text-gray-400" />
-                    </button>
-                  </div>
-                </div>
-              </motion.div>
+                {collaborator.charAt(0).toUpperCase()}
+              </div>
             ))}
+            {currentDocument.collaborators.length > 3 && (
+              <div className="w-8 h-8 rounded-full bg-gray-400 border-2 border-white flex items-center justify-center text-white text-xs font-medium shadow-sm"
+                style={{ marginLeft: '-8px' }}
+              >
+                +{currentDocument.collaborators.length - 3}
+              </div>
+            )}
           </div>
         )}
       </div>
 
-      {/* Create document modal */}
-      <Modal
-        isOpen={showCreateModal}
-        onClose={() => {
-          setShowCreateModal(false);
-          resetCreateForm();
-        }}
-        title="Create New Document"
-      >
-        <form onSubmit={handleCreateDocument} className="space-y-4">
-          <Input
-            label="Document Title"
-            value={newDocumentTitle}
-            onChange={(e) => setNewDocumentTitle(e.target.value)}
-            placeholder="Enter document title"
-            required
-            autoFocus
-          />
-          
-          <div className="flex items-start space-x-3">
-            <input
-              type="checkbox"
-              id="documentPublic"
-              checked={newDocumentPublic}
-              onChange={(e) => setNewDocumentPublic(e.target.checked)}
-              className="h-4 w-4 text-primary-600 focus:ring-primary-500 border-gray-300 rounded mt-0.5"
-            />
-            <div className="flex-1">
-              <label htmlFor="documentPublic" className="text-sm text-gray-700 dark:text-gray-300 flex items-center space-x-2 cursor-pointer">
-                <EyeIcon className="h-4 w-4" />
-                <span>Make this document public</span>
-              </label>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                {newDocumentPublic 
-                  ? 'Anyone with the link can view this document'
-                  : 'Only workspace members can access this document'
-                }
-              </p>
+      {/* Settings panel */}
+      {showSettings && (
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="absolute bottom-0 right-0 w-80 bg-white border-l border-t border-gray-200 shadow-xl"
+        >
+          <div className="p-4 border-b border-gray-200">
+            <div className="flex items-center justify-between">
+              <h3 className="font-semibold text-gray-900">Document Settings</h3>
+              <button
+                onClick={() => setShowSettings(false)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                ×
+              </button>
             </div>
           </div>
           
-          <div className={`p-3 rounded-lg ${newDocumentPublic ? 'bg-green-50 dark:bg-green-900' : 'bg-gray-50 dark:bg-dark-700'}`}>
-            <p className="text-xs text-gray-600 dark:text-gray-400 flex items-center">
-              {newDocumentPublic ? (
-                <>
-                  <EyeIcon className="h-4 w-4 mr-1 text-green-600" />
-                  🌍 Public documents can be viewed by anyone with the link
-                </>
-              ) : (
-                <>
-                  <LockClosedIcon className="h-4 w-4 mr-1 text-gray-500" />
-                  🔒 Private documents are only visible to workspace members
-                </>
-              )}
-            </p>
+          <div className="p-4 space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Visibility
+              </label>
+              <div className="space-y-2">
+                <label className="flex items-center space-x-2">
+                  <input
+                    type="radio"
+                    checked={!currentDocument.is_public}
+                    onChange={() => {}}
+                    className="h-4 w-4 text-blue-600"
+                  />
+                  <LockClosedIcon className="h-4 w-4 text-gray-500" />
+                  <span className="text-sm">Private to workspace</span>
+                </label>
+                <label className="flex items-center space-x-2">
+                  <input
+                    type="radio"
+                    checked={currentDocument.is_public}
+                    onChange={() => {}}
+                    className="h-4 w-4 text-blue-600"
+                  />
+                  <EyeIcon className="h-4 w-4 text-gray-500" />
+                  <span className="text-sm">Public (anyone with link)</span>
+                </label>
+              </div>
+            </div>
+            
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Actions
+              </label>
+              <div className="space-y-2">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={handleExport}
+                  className="w-full justify-start"
+                >
+                  <CloudArrowUpIcon className="h-4 w-4 mr-2" />
+                  Export as Text
+                </Button>
+                
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => {
+                    handleDuplicateDocument(currentDocument);
+                    setShowSettings(false);
+                  }}
+                  className="w-full justify-start"
+                >
+                  <DocumentDuplicateIcon className="h-4 w-4 mr-2" />
+                  Duplicate Document
+                </Button>
+                
+                {currentDocument.created_by === user?.id && (
+                  <Button
+                    variant="danger"
+                    size="sm"
+                    onClick={() => {
+                      if (window.confirm('Are you sure you want to delete this document?')) {
+                        // Delete document
+                        navigate(`/workspace/${workspaceId}/documents`);
+                      }
+                    }}
+                    className="w-full justify-start"
+                  >
+                    <TrashIcon className="h-4 w-4 mr-2" />
+                    Delete Document
+                  </Button>
+                )}
+              </div>
+            </div>
           </div>
-          
-          <div className="flex justify-end space-x-3 pt-4">
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={() => {
-                setShowCreateModal(false);
-                resetCreateForm();
-              }}
-            >
-              Cancel
-            </Button>
-            <Button type="submit" loading={loading}>
-              Create Document
-            </Button>
-          </div>
-        </form>
-      </Modal>
+        </motion.div>
+      )}
     </div>
   );
 };
 
-export default DocumentsView;
+export default DocumentEditor;
