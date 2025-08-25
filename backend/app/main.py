@@ -24,6 +24,7 @@ from app.middleware.rate_limiting import RateLimitMiddleware
 from app.api.health import router as health_router
 from app.api.connections import router as connections_router
 from app.api.direct_messages import router as dm_router
+from app.api.tasks import router as tasks_router
 
 app.add_middleware(LoggingMiddleware)
 app.add_middleware(RateLimitMiddleware)
@@ -64,7 +65,8 @@ app.include_router(search_router, prefix="/api/search", tags=["search"])
 app.include_router(health_router, tags=["health"])
 app.include_router(connections_router, prefix="/api/connections", tags=["connections"])
 app.include_router(dm_router, prefix="/api/dm", tags=["direct-messages"])
-
+app.include_router(tasks_router)
+app.include_router(connections_router, prefix="/api/connections", tags=["connections"])
 # WebSocket endpoint - FIXED
 @app.websocket("/ws/{workspace_id}")
 async def websocket_endpoint(websocket: WebSocket, workspace_id: str):

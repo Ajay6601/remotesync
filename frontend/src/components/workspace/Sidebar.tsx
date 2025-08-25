@@ -7,8 +7,8 @@ import {
   CheckCircleIcon,
   PlusIcon,
   HashtagIcon,
-  Cog6ToothIcon,
   ArrowLeftOnRectangleIcon,
+  HomeIcon,
 } from '@heroicons/react/24/outline';
 import { useAppDispatch, useAppSelector } from '../../hooks/redux.ts';
 import { logout } from '../../store/slices/authSlice.ts';
@@ -33,7 +33,6 @@ const Sidebar: React.FC<SidebarProps> = ({ workspace, channels }) => {
   const { workspaceId } = useParams();
   const dispatch = useAppDispatch();
   const { user } = useAppSelector((state) => state.auth);
-  const { loading } = useAppSelector((state) => state.workspace);
 
   const isActive = (path: string) => location.pathname.includes(path);
 
@@ -59,7 +58,7 @@ const Sidebar: React.FC<SidebarProps> = ({ workspace, channels }) => {
       setShowCreateChannel(false);
       setChannelName('');
     } catch (error: any) {
-      toast.error(error.message || 'Failed to create channel');
+      toast.error('Failed to create channel');
     }
   };
 
@@ -68,14 +67,29 @@ const Sidebar: React.FC<SidebarProps> = ({ workspace, channels }) => {
     navigate('/login');
   };
 
+  const goBackToDashboard = () => {
+    navigate('/dashboard');
+  };
+
   return (
     <div className="w-64 bg-gray-900 flex flex-col">
-      {/* Workspace header */}
+      {/* Workspace header with back button */}
       <div className="px-4 py-4 border-b border-gray-700">
-        <h1 className="text-white font-bold text-lg truncate">
-          {workspace.name}
-        </h1>
-        <p className="text-gray-300 text-sm truncate">
+        <div className="flex items-center justify-between mb-2">
+          <h1 className="text-white font-bold text-lg truncate">
+            {workspace.name}
+          </h1>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={goBackToDashboard}
+            className="bg-gray-700 hover:bg-gray-600 text-white"
+            title="Back to Dashboard"
+          >
+            <HomeIcon className="h-4 w-4" />
+          </Button>
+        </div>
+        <p className="text-gray-300 text-sm">
           {workspace.member_count} member{workspace.member_count !== 1 ? 's' : ''}
         </p>
       </div>
@@ -170,17 +184,12 @@ const Sidebar: React.FC<SidebarProps> = ({ workspace, channels }) => {
             </div>
           </div>
           
-          <div className="flex space-x-1">
-            <button className="p-1 text-gray-400 hover:text-gray-200 transition-colors duration-200">
-              <Cog6ToothIcon className="h-5 w-5" />
-            </button>
-            <button
-              onClick={handleLogout}
-              className="p-1 text-gray-400 hover:text-red-400 transition-colors duration-200"
-            >
-              <ArrowLeftOnRectangleIcon className="h-5 w-5" />
-            </button>
-          </div>
+          <button
+            onClick={handleLogout}
+            className="p-1 text-gray-400 hover:text-red-400 transition-colors duration-200"
+          >
+            <ArrowLeftOnRectangleIcon className="h-5 w-5" />
+          </button>
         </div>
       </div>
 
@@ -207,7 +216,7 @@ const Sidebar: React.FC<SidebarProps> = ({ workspace, channels }) => {
             >
               Cancel
             </Button>
-            <Button type="submit" loading={loading}>
+            <Button type="submit">
               Create Channel
             </Button>
           </div>

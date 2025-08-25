@@ -1,321 +1,376 @@
-import React, { useEffect, useState, useRef } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import React, { useEffect, useState } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import {
-  ArrowLeftIcon,
-  ShareIcon,
-  UserIcon,
+import { 
+  PlusIcon, 
+  DocumentTextIcon, 
+  MagnifyingGlassIcon,
+  FunnelIcon,
   EyeIcon,
   LockClosedIcon,
+  PencilIcon,
+  ShareIcon,
 } from '@heroicons/react/24/outline';
 import { useAppDispatch, useAppSelector } from '../../hooks/redux.ts';
-import {
-  getDocument,
-  updateDocument,
-  setCurrentDocument,
-  updateDocumentContent,
-} from '../../store/slices/documentSlice.ts';
-import { websocketService } from '../../services/websocket.ts';
+import { getWorkspaceDocuments, createDocument } from '../../store/slices/documentSlice.ts';
 import Button from '../ui/Button.tsx';
+import Input from '../ui/Input.tsx';
+import Modal from '../ui/Modal.tsx';
+import DocumentEditor from './DocumentEditor.tsx'; // Add this import
 import toast from 'react-hot-toast';
 
-interface DocumentEditorProps {
-  documentId: string;
-}
-
-const DocumentEditor: React.FC<DocumentEditorProps> = ({ documentId }) => {
-  const { workspaceId } = useParams<{ workspaceId: string }>();
-  const [content, setContent] = useState('');
-  const [title, setTitle] = useState('');
-  const [isEditing, setIsEditing] = useState(false);
-  const [cursors, setCursors] = useState<Record<string, { position: number; user: string }>>({});
-  const [saveTimeout, setSaveTimeout] = useState<NodeJS.Timeout | null>(null);
+const DocumentsView: React.FC = () => {
+  const { workspaceId, documentId } = useParams<{ workspaceId: string; documentId?: string }>();
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filterType, setFilterType] = useState('all');
+  const [newDocumentTitle, setNewDocumentTitle] = useState('');
+  const [newDocumentPublic, setNewDocumentPublic] = useState(false);
   
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const navigate = useNavigate();
   const dispatch = useAppDispatch();
-  
-  const { currentDocument, loading } = useAppSelector((state) => state.document);
-  const { user } = useAppSelector((state) => state.auth);
+  const { documents, loading } = useAppSelector((state) => state.document);
+  const { currentWorkspace } = useAppSelector((state) => state.workspace);
 
   useEffect(() => {
-    dispatch(getDocument(documentId));
+    if (workspaceId) {
+      dispatch(getWorkspaceDocuments(workspaceId));
+    }
+  }, [workspaceId, dispatch]);
+
+  const handleCreateDocument = async (e: React.FormEvent) => {
+    e.preventDefault();
     
-    return () => {
-      dispatch(setCurrentDocument(null));
-    };
-  }, [documentId, dispatch]);
-
-  useEffect(() => {
-    if (currentDocument) {
-      setContent(currentDocument.content);
-      setTitle(currentDocument.title);
+    if (!newDocumentTitle.trim() || !workspaceId) {
+      toast.error('Document title is required');
+      return;
     }
-  }, [currentDocument]);
-
-  // WebSocket handlers for collaborative editing
-  useEffect(() => {
-    const handleDocumentOperation = (operation: any) => {
-      if (operation.document_id === documentId && operation.user_id !== user?.id) {
-        // Apply operation to content
-        applyOperation(operation);
-      }
-    };
-
-    const handleCursorPosition = (cursor: any) => {
-      if (cursor.document_id === documentId && cursor.user_id !== user?.id) {
-        setCursors(prev => ({
-          ...prev,
-          [cursor.user_id]: {
-            position: cursor.position,
-            user: cursor.user_name || cursor.user_id,
-          },
-        }));
-      }
-    };
-
-    // Subscribe to WebSocket events
-    websocketService.onMessage((message) => {
-      if (message.type === 'document_operation') {
-        handleDocumentOperation(message);
-      } else if (message.type === 'cursor_position') {
-        handleCursorPosition(message);
-      }
-    });
-
-    return () => {
-      websocketService.offMessage();
-    };
-  }, [documentId, user?.id]);
-
-  const applyOperation = (operation: any) => {
-    setContent(prevContent => {
-      let newContent = prevContent;
-      
-      switch (operation.operation_type) {
-        case 'insert':
-          newContent = (
-            prevContent.slice(0, operation.position) +
-            operation.content +
-            prevContent.slice(operation.position)
-          );
-          break;
-        case 'delete':
-          const endPos = operation.position + (operation.length || 0);
-          newContent = (
-            prevContent.slice(0, operation.position) +
-            prevContent.slice(endPos)
-          );
-          break;
-      }
-      
-      return newContent;
-    });
-  };
-
-  const handleContentChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const newContent = e.target.value;
-    const oldContent = content;
-    
-    setContent(newContent);
-    setIsEditing(true);
-
-    // Find the change and send operation
-    if (newContent.length > oldContent.length) {
-      // Insert operation
-      const position = findChangePosition(oldContent, newContent);
-      const insertedText = newContent.slice(position, position + (newContent.length - oldContent.length));
-      
-      websocketService.sendDocumentOperation(documentId, {
-        operation_type: 'insert',
-        position,
-        content: insertedText,
-        version: currentDocument?.version || 1,
-      });
-    } else if (newContent.length < oldContent.length) {
-      // Delete operation
-      const position = findChangePosition(newContent, oldContent);
-      const length = oldContent.length - newContent.length;
-      
-      websocketService.sendDocumentOperation(documentId, {
-        operation_type: 'delete',
-        position,
-        length,
-        version: currentDocument?.version || 1,
-      });
-    }
-
-    // Send cursor position
-    const cursorPosition = e.target.selectionStart;
-    websocketService.sendCursorPosition(documentId, cursorPosition);
-
-    // Auto-save after 2 seconds of inactivity
-    if (saveTimeout) {
-      clearTimeout(saveTimeout);
-    }
-    
-    setSaveTimeout(
-      setTimeout(() => {
-        handleSave(newContent, title);
-      }, 2000)
-    );
-  };
-
-  const findChangePosition = (shorter: string, longer: string): number => {
-    for (let i = 0; i < shorter.length; i++) {
-      if (shorter[i] !== longer[i]) {
-        return i;
-      }
-    }
-    return shorter.length;
-  };
-
-  const handleTitleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setTitle(e.target.value);
-    setIsEditing(true);
-  };
-
-  const handleSave = async (contentToSave?: string, titleToSave?: string) => {
-    if (!currentDocument) return;
 
     try {
-      await dispatch(updateDocument({
-        documentId: currentDocument.id,
+      const newDoc = await dispatch(createDocument({
+        workspaceId,
         documentData: {
-          title: titleToSave || title,
-          content: contentToSave || content,
+          title: newDocumentTitle.trim(),
+          content: '',
+          is_public: newDocumentPublic,
         },
       })).unwrap();
       
-      setIsEditing(false);
-      toast.success('Document saved');
+      toast.success('Document created successfully!');
+      setShowCreateModal(false);
+      setNewDocumentTitle('');
+      setNewDocumentPublic(false);
+      navigate(`/workspace/${workspaceId}/documents/${newDoc.id}`);
     } catch (error: any) {
-      toast.error(error.message || 'Failed to save document');
+      toast.error(error.message || 'Failed to create document');
     }
   };
 
-  const handleManualSave = () => {
-    if (saveTimeout) {
-      clearTimeout(saveTimeout);
-      setSaveTimeout(null);
-    }
-    handleSave();
+  const resetCreateForm = () => {
+    setNewDocumentTitle('');
+    setNewDocumentPublic(false);
   };
 
-  if (!currentDocument) {
-    return (
-      <div className="flex-1 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600 dark:text-gray-400">Loading document...</p>
-        </div>
-      </div>
-    );
+  const filteredDocuments = documents.filter(doc => {
+    const matchesSearch = doc.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         (doc.content && doc.content.toLowerCase().includes(searchTerm.toLowerCase()));
+    
+    const matchesFilter = filterType === 'all' || 
+                         (filterType === 'public' && doc.is_public) ||
+                         (filterType === 'private' && !doc.is_public) ||
+                         (filterType === 'recent' && new Date(doc.updated_at || doc.created_at).getTime() > Date.now() - 7 * 24 * 60 * 60 * 1000);
+    
+    return matchesSearch && matchesFilter;
+  });
+
+  const documentStats = {
+    total: documents.length,
+    public: documents.filter(d => d.is_public).length,
+    private: documents.filter(d => !d.is_public).length,
+    recent: documents.filter(d => new Date(d.updated_at || d.created_at).getTime() > Date.now() - 7 * 24 * 60 * 60 * 1000).length,
+  };
+
+  // If viewing a specific document, show the editor
+  if (documentId) {
+    return <DocumentEditor documentId={documentId} />;
   }
 
   return (
-    <div className="flex-1 flex flex-col bg-white dark:bg-dark-900">
+    <div className="flex-1 flex flex-col bg-gray-50 dark:bg-dark-900">
       {/* Header */}
       <div className="px-6 py-4 border-b border-gray-200 dark:border-dark-700 bg-white dark:bg-dark-800">
         <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-4 flex-1">
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => navigate(`/workspace/${workspaceId}/documents`)}
-            >
-              <ArrowLeftIcon className="h-4 w-4" />
-            </Button>
-            
-            <input
-              value={title}
-              onChange={handleTitleChange}
-              className="text-xl font-bold bg-transparent border-none outline-none text-gray-900 dark:text-white flex-1"
-              placeholder="Untitled Document"
-            />
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
+              Documents
+            </h1>
+            <p className="text-gray-600 dark:text-gray-400 mt-1">
+              Collaborate on documents in real-time
+            </p>
+          </div>
+          
+          <Button onClick={() => setShowCreateModal(true)}>
+            <PlusIcon className="h-5 w-5 mr-2" />
+            New Document
+          </Button>
+        </div>
+      </div>
+
+      {/* Stats */}
+      {documents.length > 0 && (
+        <div className="px-6 py-4 bg-white dark:bg-dark-800 border-b border-gray-200 dark:border-dark-700">
+          <div className="grid grid-cols-4 gap-4">
+            <div className="text-center">
+              <div className="text-2xl font-bold text-gray-900 dark:text-white">{documentStats.total}</div>
+              <div className="text-sm text-gray-600 dark:text-gray-400">Total</div>
+            </div>
+            <div className="text-center">
+              <div className="text-2xl font-bold text-green-600">{documentStats.public}</div>
+              <div className="text-sm text-gray-600 dark:text-gray-400">Public</div>
+            </div>
+            <div className="text-center">
+              <div className="text-2xl font-bold text-blue-600">{documentStats.private}</div>
+              <div className="text-sm text-gray-600 dark:text-gray-400">Private</div>
+            </div>
+            <div className="text-center">
+              <div className="text-2xl font-bold text-purple-600">{documentStats.recent}</div>
+              <div className="text-sm text-gray-600 dark:text-gray-400">Recent</div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Search and filters */}
+      {documents.length > 0 && (
+        <div className="px-6 py-4 bg-white dark:bg-dark-800 border-b border-gray-200 dark:border-dark-700">
+          <div className="flex items-center space-x-4">
+            <div className="flex-1 relative">
+              <MagnifyingGlassIcon className="h-5 w-5 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+              <Input
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder="Search documents..."
+                className="pl-10"
+              />
+            </div>
             
             <div className="flex items-center space-x-2">
-              {currentDocument.is_public ? (
-                <div className="flex items-center space-x-1 text-green-600">
-                  <EyeIcon className="h-4 w-4" />
-                  <span className="text-sm">Public</span>
+              <FunnelIcon className="h-5 w-5 text-gray-400" />
+              <select
+                value={filterType}
+                onChange={(e) => setFilterType(e.target.value)}
+                className="input-field min-w-[140px]"
+              >
+                <option value="all">All Documents</option>
+                <option value="recent">Recent (7 days)</option>
+                <option value="public">Public</option>
+                <option value="private">Private</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Documents list */}
+      <div className="flex-1 overflow-y-auto p-6">
+        {loading ? (
+          <div className="flex items-center justify-center h-full">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
+            <span className="ml-3 text-gray-600 dark:text-gray-400">Loading documents...</span>
+          </div>
+        ) : filteredDocuments.length === 0 ? (
+          <div className="text-center py-12">
+            <DocumentTextIcon className="mx-auto h-12 w-12 text-gray-400" />
+            <h3 className="mt-4 text-lg font-medium text-gray-900 dark:text-white">
+              {documents.length === 0 ? 'No documents yet' : 'No matching documents'}
+            </h3>
+            <p className="mt-2 text-gray-600 dark:text-gray-400">
+              {documents.length === 0 
+                ? 'Create your first document to start collaborating'
+                : 'Try adjusting your search or filter criteria'
+              }
+            </p>
+            {documents.length === 0 && (
+              <Button className="mt-4" onClick={() => setShowCreateModal(true)}>
+                <PlusIcon className="h-5 w-5 mr-2" />
+                Create Document
+              </Button>
+            )}
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+            {filteredDocuments.map((document, index) => (
+              <motion.div
+                key={document.id}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: index * 0.1 }}
+                className="relative bg-white dark:bg-dark-800 rounded-lg shadow-sm border border-gray-200 dark:border-dark-700 p-6 hover:shadow-lg transition-all duration-200 cursor-pointer transform hover:-translate-y-1 group"
+                onClick={() => navigate(`/workspace/${workspaceId}/documents/${document.id}`)}
+              >
+                <div className="flex items-start justify-between mb-4">
+                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white truncate flex-1 group-hover:text-primary-600 dark:group-hover:text-primary-400 transition-colors pr-2">
+                    {document.title}
+                  </h3>
+                  <div className="flex items-center space-x-2 flex-shrink-0">
+                    {document.is_public ? (
+                      <div className="flex items-center space-x-1 text-green-600">
+                        <EyeIcon className="h-4 w-4" />
+                        <span className="text-xs font-medium">Public</span>
+                      </div>
+                    ) : (
+                      <div className="flex items-center space-x-1 text-gray-500">
+                        <LockClosedIcon className="h-4 w-4" />
+                        <span className="text-xs font-medium">Private</span>
+                      </div>
+                    )}
+                  </div>
                 </div>
-              ) : (
-                <div className="flex items-center space-x-1 text-gray-500">
-                  <LockClosedIcon className="h-4 w-4" />
-                  <span className="text-sm">Private</span>
+                
+                <p className="text-gray-600 dark:text-gray-400 text-sm mb-4 line-clamp-3 leading-relaxed">
+                  {document.content && document.content.length > 0 
+                    ? document.content.substring(0, 150) + (document.content.length > 150 ? '...' : '')
+                    : 'No content yet. Click to start editing.'
+                  }
+                </p>
+                
+                <div className="flex items-center justify-between text-sm text-gray-500 dark:text-gray-400">
+                  <div className="flex items-center space-x-2">
+                    <div className="w-6 h-6 bg-primary-500 rounded-full flex items-center justify-center">
+                      <span className="text-white text-xs font-medium">
+                        {(document.creator_name || 'U').charAt(0).toUpperCase()}
+                      </span>
+                    </div>
+                    <span className="font-medium truncate max-w-20">{document.creator_name || 'Unknown'}</span>
+                    {document.version && (
+                      <>
+                        <span>•</span>
+                        <span>v{document.version}</span>
+                      </>
+                    )}
+                  </div>
+                  
+                  <div className="flex items-center space-x-2 text-right">
+                    {document.collaborators && document.collaborators.length > 0 && (
+                      <div className="flex items-center space-x-1 text-blue-600">
+                        <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
+                        <span className="text-xs">{document.collaborators.length} active</span>
+                      </div>
+                    )}
+                    <span className="text-xs">
+                      {new Date(document.updated_at || document.created_at).toLocaleDateString()}
+                    </span>
+                  </div>
                 </div>
-              )}
+
+                {/* Hover actions */}
+                <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                  <div className="flex space-x-1">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        navigate(`/workspace/${workspaceId}/documents/${document.id}/edit`);
+                      }}
+                      className="p-1 bg-white dark:bg-dark-700 rounded shadow-md hover:bg-gray-50 dark:hover:bg-dark-600"
+                      title="Quick edit"
+                    >
+                      <PencilIcon className="h-4 w-4 text-gray-600 dark:text-gray-400" />
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        navigator.clipboard.writeText(`${window.location.origin}/workspace/${workspaceId}/documents/${document.id}`);
+                        toast.success('Document link copied!');
+                      }}
+                      className="p-1 bg-white dark:bg-dark-700 rounded shadow-md hover:bg-gray-50 dark:hover:bg-dark-600"
+                      title="Share document"
+                    >
+                      <ShareIcon className="h-4 w-4 text-gray-600 dark:text-gray-400" />
+                    </button>
+                  </div>
+                </div>
+              </motion.div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Create document modal */}
+      <Modal
+        isOpen={showCreateModal}
+        onClose={() => {
+          setShowCreateModal(false);
+          resetCreateForm();
+        }}
+        title="Create New Document"
+      >
+        <form onSubmit={handleCreateDocument} className="space-y-4">
+          <Input
+            label="Document Title"
+            value={newDocumentTitle}
+            onChange={(e) => setNewDocumentTitle(e.target.value)}
+            placeholder="Enter document title"
+            required
+            autoFocus
+          />
+          
+          <div className="flex items-start space-x-3">
+            <input
+              type="checkbox"
+              id="documentPublic"
+              checked={newDocumentPublic}
+              onChange={(e) => setNewDocumentPublic(e.target.checked)}
+              className="h-4 w-4 text-primary-600 focus:ring-primary-500 border-gray-300 rounded mt-0.5"
+            />
+            <div className="flex-1">
+              <label htmlFor="documentPublic" className="text-sm text-gray-700 dark:text-gray-300 flex items-center space-x-2 cursor-pointer">
+                <EyeIcon className="h-4 w-4" />
+                <span>Make this document public</span>
+              </label>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                {newDocumentPublic 
+                  ? 'Anyone with the link can view this document'
+                  : 'Only workspace members can access this document'
+                }
+              </p>
             </div>
           </div>
           
-          <div className="flex items-center space-x-3">
-            {/* Collaborators */}
-            <div className="flex items-center space-x-2">
-              {currentDocument.collaborators.slice(0, 3).map((collaborator, index) => (
-                <div
-                  key={collaborator}
-                  className="w-8 h-8 rounded-full bg-primary-500 flex items-center justify-center text-white text-sm font-medium"
-                  style={{ zIndex: 10 - index }}
-                >
-                  {collaborator.charAt(0).toUpperCase()}
-                </div>
-              ))}
-              {currentDocument.collaborators.length > 3 && (
-                <div className="w-8 h-8 rounded-full bg-gray-400 flex items-center justify-center text-white text-sm">
-                  +{currentDocument.collaborators.length - 3}
-                </div>
+          <div className={`p-3 rounded-lg ${newDocumentPublic ? 'bg-green-50 dark:bg-green-900' : 'bg-gray-50 dark:bg-dark-700'}`}>
+            <p className="text-xs text-gray-600 dark:text-gray-400 flex items-center">
+              {newDocumentPublic ? (
+                <>
+                  <EyeIcon className="h-4 w-4 mr-1 text-green-600" />
+                  🌍 Public documents can be viewed by anyone with the link
+                </>
+              ) : (
+                <>
+                  <LockClosedIcon className="h-4 w-4 mr-1 text-gray-500" />
+                  🔒 Private documents are only visible to workspace members
+                </>
               )}
-            </div>
-
-            <Button variant="secondary" size="sm">
-              <ShareIcon className="h-4 w-4 mr-1" />
-              Share
-            </Button>
-            
+            </p>
+          </div>
+          
+          <div className="flex justify-end space-x-3 pt-4">
             <Button
-              onClick={handleManualSave}
-              disabled={!isEditing}
-              loading={loading}
-              size="sm"
+              type="button"
+              variant="secondary"
+              onClick={() => {
+                setShowCreateModal(false);
+                resetCreateForm();
+              }}
             >
-              {isEditing ? 'Save' : 'Saved'}
+              Cancel
+            </Button>
+            <Button type="submit" loading={loading}>
+              Create Document
             </Button>
           </div>
-        </div>
-        
-        <div className="mt-2 text-sm text-gray-500 dark:text-gray-400">
-          Version {currentDocument.version} • 
-          Last updated {new Date(currentDocument.updated_at || currentDocument.created_at).toLocaleString()}
-        </div>
-      </div>
-
-      {/* Editor */}
-      <div className="flex-1 relative">
-        <textarea
-          ref={textareaRef}
-          value={content}
-          onChange={handleContentChange}
-          placeholder="Start typing..."
-          className="w-full h-full p-6 resize-none border-none outline-none bg-transparent text-gray-900 dark:text-white text-lg leading-relaxed font-mono"
-        />
-        
-        {/* Cursor indicators */}
-        {Object.entries(cursors).map(([userId, cursor]) => (
-          <div
-            key={userId}
-            className="absolute bg-primary-500 text-white text-xs px-2 py-1 rounded pointer-events-none"
-            style={{
-              top: `${Math.floor(cursor.position / 80) * 1.5 + 6}rem`,
-              left: `${(cursor.position % 80) * 0.6 + 1.5}rem`,
-            }}
-          >
-            {cursor.user}
-          </div>
-        ))}
-      </div>
+        </form>
+      </Modal>
     </div>
   );
 };
 
-export default DocumentEditor;
+export default DocumentsView;

@@ -100,9 +100,9 @@ class WebSocketService {
   }
 
   // Chat methods
-  sendChatMessage(channelId: string, content: string, messageType = 'text'): void {
+   sendChatMessage(channelId: string, content: string, messageType = "text"): void {
     this.sendMessage({
-      type: 'chat_message',
+      type: "chat_message",
       channel_id: channelId,
       content,
       message_type: messageType

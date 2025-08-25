@@ -42,9 +42,10 @@ const ChatView: React.FC = () => {
   const messageInputRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
   
   const dispatch = useAppDispatch();
-  const { channels, currentChannel } = useAppSelector((state) => state.workspace);
+  const { channels } = useAppSelector((state) => state.workspace);
   const { messages, typing } = useAppSelector((state) => state.chat);
   const { user } = useAppSelector((state) => state.auth);
 
@@ -52,25 +53,20 @@ const ChatView: React.FC = () => {
     channels.find(ch => ch.id === channelId) : 
     channels.find(ch => ch.name === 'general') || channels[0];
 
-  // Load messages when channel changes
   useEffect(() => {
     if (activeChannel) {
-      console.log('🔄 Loading messages for channel:', activeChannel.name);
       dispatch(setCurrentChannel(activeChannel));
       dispatch(getChannelMessages({ channelId: activeChannel.id }));
     }
   }, [activeChannel, dispatch]);
 
-  // Connect to WebSocket
   useEffect(() => {
     if (workspaceId) {
-      console.log('🔌 Connecting WebSocket...');
       websocketService.connect(workspaceId).catch(console.error);
     }
     return () => websocketService.disconnect();
   }, [workspaceId]);
 
-  // WebSocket message handler
   useEffect(() => {
     const handleWebSocketMessage = (message: WebSocketMessage) => {
       switch (message.type) {
@@ -115,9 +111,12 @@ const ChatView: React.FC = () => {
     return () => websocketService.offMessage(handleWebSocketMessage);
   }, [dispatch, user?.id]);
 
-  // Auto-scroll to bottom
+  // Auto scroll to bottom when messages change
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (messagesContainerRef.current) {
+      const container = messagesContainerRef.current;
+      container.scrollTop = container.scrollHeight;
+    }
   }, [messages[activeChannel?.id || '']]);
 
   const handleSendMessage = async (e: React.FormEvent) => {
@@ -180,18 +179,30 @@ const ChatView: React.FC = () => {
         const result = await response.json();
         toast.success(`File "${file.name}" uploaded successfully!`);
         
-        await dispatch(sendMessage({
+        const fileMessage = {
+          id: result.message_id || Date.now().toString(),
+          content: `📎 Shared file: ${file.name}`,
+          encrypted_content: undefined,
+          message_type: "file" as const,
+          channel_id: activeChannel.id,
+          user_id: user?.id || "",
+          user_name: user?.username || "",
+          user_avatar: user?.avatar_url,
+          parent_message_id: undefined,
+          is_edited: false,
+          attachments: result.attachment,
+          reactions: {},
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          reply_count: 0,
+        };
+        
+        dispatch(addMessage({
           channelId: activeChannel.id,
-          messageData: {
-            content: `📎 Shared file: ${file.name}`,
-            message_type: 'file',
-          },
+          message: fileMessage
         }));
-      } else {
-        throw new Error('Upload failed');
       }
     } catch (error) {
-      console.error('File upload failed:', error);
       toast.error('Failed to upload file');
     }
   };
@@ -205,7 +216,6 @@ const ChatView: React.FC = () => {
   const handleReaction = async (messageId: string, emoji: string) => {
     try {
       await dispatch(addReaction({ messageId, emoji })).unwrap();
-      websocketService.sendReaction(messageId, emoji);
     } catch (error) {
       toast.error('Failed to add reaction');
     }
@@ -238,7 +248,7 @@ const ChatView: React.FC = () => {
       <div className="flex-1 flex items-center justify-center bg-white">
         <div className="text-center">
           <h3 className="text-lg font-medium text-gray-900 mb-2">No channel selected</h3>
-          <p className="text-gray-600">Select a channel from the sidebar to start chatting</p>
+          <p className="text-gray-600">Select a channel to start chatting</p>
         </div>
       </div>
     );
@@ -248,129 +258,131 @@ const ChatView: React.FC = () => {
   const typingUsers = typing[activeChannel.id] || [];
 
   return (
-    <>
-      <div className="flex-1 flex flex-col bg-white">
-        {/* Channel header */}
-        <div className="px-6 py-4 border-b border-gray-200 bg-white">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-2">
-              <HashtagIcon className="h-5 w-5 text-gray-500" />
-              <h2 className="text-xl font-bold text-gray-900">{activeChannel.name}</h2>
-            </div>
-            
-            <div className="flex items-center space-x-2">
-              <Button variant="secondary" size="sm" onClick={() => toast.success('Audio call started!')}>
-                <PhoneIcon className="h-4 w-4 mr-1" />
-                Call
-              </Button>
-              <Button variant="secondary" size="sm" onClick={() => setShowVideoCall(true)}>
-                <VideoCameraIcon className="h-4 w-4 mr-1" />
-                Video
-              </Button>
-            </div>
+    <div className="h-screen flex flex-col bg-white">
+      {/* Fixed header */}
+      <div className="flex-shrink-0 px-6 py-4 border-b border-gray-200 bg-white">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-2">
+            <HashtagIcon className="h-5 w-5 text-gray-500" />
+            <h2 className="text-xl font-bold text-gray-900">{activeChannel.name}</h2>
+          </div>
+          
+          <div className="flex items-center space-x-2">
+            <Button variant="secondary" size="sm" onClick={() => toast.success('Audio call started!')}>
+              <PhoneIcon className="h-4 w-4 mr-1" />Call
+            </Button>
+            <Button variant="secondary" size="sm" onClick={() => setShowVideoCall(true)}>
+              <VideoCameraIcon className="h-4 w-4 mr-1" />Video
+            </Button>
           </div>
         </div>
+      </div>
 
-        {/* Messages */}
-        <div className="flex-1 overflow-y-auto">
-          <div className="px-6 py-4 space-y-4">
-            {channelMessages.length === 0 ? (
-              <div className="flex-1 flex items-center justify-center py-12">
-                <div className="text-center">
-                  <h3 className="text-lg font-medium text-gray-900 mb-2">No messages yet</h3>
-                  <p className="text-gray-600">Start the conversation!</p>
-                </div>
-              </div>
-            ) : (
-              channelMessages.map((message, index) => {
-                const prevMessage = index > 0 ? channelMessages[index - 1] : null;
-                const showAvatar = !prevMessage || 
-                  prevMessage.user_id !== message.user_id ||
-                  new Date(message.created_at).getTime() - new Date(prevMessage.created_at).getTime() > 5 * 60 * 1000;
+      {/* Scrollable messages area */}
+      <div 
+        ref={messagesContainerRef}
+        className="flex-1 overflow-y-auto px-6 py-4"
+        style={{ height: 'calc(100vh - 180px)' }}
+      >
+        {channelMessages.length === 0 ? (
+          <div className="flex items-center justify-center h-full">
+            <div className="text-center">
+              <h3 className="text-lg font-medium text-gray-900 mb-2">No messages yet</h3>
+              <p className="text-gray-600">Start the conversation!</p>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-4 pb-4">
+            {channelMessages.map((message, index) => {
+              const prevMessage = index > 0 ? channelMessages[index - 1] : null;
+              const showAvatar = !prevMessage || 
+                prevMessage.user_id !== message.user_id ||
+                new Date(message.created_at).getTime() - new Date(prevMessage.created_at).getTime() > 5 * 60 * 1000;
 
-                return (
-                  <MessageItem
-                    key={message.id}
-                    message={message}
-                    showAvatar={showAvatar}
-                    isOwnMessage={message.user_id === user?.id}
-                    onReaction={handleReaction}
-                    onEdit={() => setEditingMessage(message)}
-                    onDelete={() => handleDeleteMessage(message.id)}
-                  />
-                );
-              })
-            )}
+              return (
+                <MessageItem
+                  key={message.id}
+                  message={message}
+                  showAvatar={showAvatar}
+                  isOwnMessage={message.user_id === user?.id}
+                  onReaction={handleReaction}
+                  onEdit={() => setEditingMessage(message)}
+                  onDelete={() => handleDeleteMessage(message.id)}
+                />
+              );
+            })}
             <div ref={messagesEndRef} />
           </div>
+        )}
 
-          {/* Typing indicator */}
-          {typingUsers.length > 0 && (
+        {/* Typing indicator */}
+        {typingUsers.length > 0 && (
+          <div className="sticky bottom-0 bg-white py-2">
             <TypingIndicator users={typingUsers} />
-          )}
-        </div>
+          </div>
+        )}
+      </div>
 
-        {/* Message input */}
-        <div className="px-6 py-4 border-t border-gray-200 bg-white">
-          <form onSubmit={handleSendMessage} className="flex items-end space-x-3">
-            <div className="flex-1 relative">
-              <textarea
-                ref={messageInputRef}
-                value={messageContent}
-                onChange={handleInputChange}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    handleSendMessage(e);
-                  }
-                }}
-                placeholder={`Message #${activeChannel.name}`}
-                rows={1}
-                className="w-full px-4 py-3 pr-20 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none max-h-32"
-                style={{ minHeight: '48px' }}
-              />
-              
-              <div className="absolute right-2 bottom-2 flex space-x-1">
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  className="p-2 text-gray-400 hover:text-gray-600 transition-colors rounded-md hover:bg-gray-100"
-                >
-                  <PaperClipIcon className="h-4 w-4" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-                  className="p-2 text-gray-400 hover:text-gray-600 transition-colors rounded-md hover:bg-gray-100"
-                >
-                  <FaceSmileIcon className="h-4 w-4" />
-                </button>
-              </div>
-            </div>
+      {/* Fixed input area */}
+      <div className="flex-shrink-0 px-6 py-4 border-t border-gray-200 bg-white">
+        <form onSubmit={handleSendMessage} className="flex items-end space-x-3">
+          <div className="flex-1 relative">
+            <textarea
+              ref={messageInputRef}
+              value={messageContent}
+              onChange={handleInputChange}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  handleSendMessage(e);
+                }
+              }}
+              placeholder={`Message #${activeChannel.name}`}
+              rows={1}
+              className="w-full px-4 py-3 pr-20 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none max-h-32"
+              style={{ minHeight: '48px' }}
+            />
             
-            <Button
-              type="submit"
-              disabled={!messageContent.trim()}
-              className="h-12"
-            >
-              <PaperAirplaneIcon className="h-5 w-5" />
-            </Button>
-          </form>
+            <div className="absolute right-2 bottom-2 flex space-x-1">
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="p-2 text-gray-400 hover:text-gray-600 transition-colors rounded-md hover:bg-gray-100"
+              >
+                <PaperClipIcon className="h-4 w-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+                className="p-2 text-gray-400 hover:text-gray-600 transition-colors rounded-md hover:bg-gray-100"
+              >
+                <FaceSmileIcon className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
           
-          <input
-            ref={fileInputRef}
-            type="file"
-            hidden
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) {
-                handleFileUpload(file);
-                e.target.value = '';
-              }
-            }}
-            accept="image/*,application/pdf,.doc,.docx,.txt"
-          />
-        </div>
+          <Button
+            type="submit"
+            disabled={!messageContent.trim()}
+            className="h-12"
+          >
+            <PaperAirplaneIcon className="h-5 w-5" />
+          </Button>
+        </form>
+        
+        <input
+          ref={fileInputRef}
+          type="file"
+          hidden
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file) {
+              handleFileUpload(file);
+              e.target.value = '';
+            }
+          }}
+          accept="image/*,application/pdf,.doc,.docx,.txt"
+        />
       </div>
 
       {/* Floating components */}
@@ -402,11 +414,11 @@ const ChatView: React.FC = () => {
           />
         )}
       </AnimatePresence>
-    </>
+    </div>
   );
 };
 
-// MessageItem Component
+// MessageItem Component - COMPLETE
 interface MessageItemProps {
   message: Message;
   showAvatar: boolean;
@@ -430,7 +442,7 @@ const MessageItem: React.FC<MessageItemProps> = ({
     return new Date(dateString).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
 
-  const quickReactions = ['👍', '❤️', '😂', '😮', '😢', '😡'];
+  const quickReactions = ['👍', '❤️', '😂', '😮'];
 
   return (
     <motion.div
@@ -462,9 +474,10 @@ const MessageItem: React.FC<MessageItemProps> = ({
             </div>
           )}
 
-          <div className="text-gray-900 whitespace-pre-wrap break-words">{message.content}</div>
+          <div className="text-gray-900 whitespace-pre-wrap break-words leading-relaxed">
+            {message.content}
+          </div>
 
-          {/* File attachments */}
           {message.attachments && message.message_type === 'file' && (
             <div className="mt-2 p-3 bg-gray-100 rounded-lg max-w-sm">
               <div className="flex items-center space-x-2">
@@ -477,7 +490,6 @@ const MessageItem: React.FC<MessageItemProps> = ({
             </div>
           )}
 
-          {/* Reactions */}
           {message.reactions && Object.keys(message.reactions).length > 0 && (
             <div className="flex flex-wrap gap-1 mt-2">
               {Object.entries(message.reactions).map(([emoji, userIds]) => (
@@ -494,44 +506,41 @@ const MessageItem: React.FC<MessageItemProps> = ({
           )}
         </div>
 
-        {/* Message actions */}
-        <AnimatePresence>
-          {showActions && (
-            <motion.div
-              initial={{ opacity: 0, scale: 0.9 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.9 }}
-              className="absolute top-0 right-0 flex items-center space-x-1 bg-white border border-gray-200 rounded-lg shadow-lg px-2 py-1"
-            >
-              {quickReactions.map((emoji) => (
-                <button
-                  key={emoji}
-                  onClick={() => onReaction(message.id, emoji)}
-                  className="p-1 hover:bg-gray-100 rounded text-sm"
-                >
-                  {emoji}
+        {showActions && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="absolute top-0 right-0 flex items-center space-x-1 bg-white border border-gray-200 rounded-lg shadow-lg px-2 py-1"
+          >
+            {quickReactions.map((emoji) => (
+              <button
+                key={emoji}
+                onClick={() => onReaction(message.id, emoji)}
+                className="p-1 hover:bg-gray-100 rounded text-sm"
+                title={`React with ${emoji}`}
+              >
+                {emoji}
+              </button>
+            ))}
+            
+            {isOwnMessage && (
+              <>
+                <button onClick={onEdit} className="p-1 hover:bg-gray-100 rounded" title="Edit">
+                  <PencilIcon className="h-4 w-4 text-gray-600" />
                 </button>
-              ))}
-              
-              {isOwnMessage && (
-                <>
-                  <button onClick={onEdit} className="p-1 hover:bg-gray-100 rounded">
-                    <PencilIcon className="h-4 w-4 text-gray-600" />
-                  </button>
-                  <button onClick={onDelete} className="p-1 hover:bg-gray-100 rounded">
-                    <TrashIcon className="h-4 w-4 text-red-600" />
-                  </button>
-                </>
-              )}
-            </motion.div>
-          )}
-        </AnimatePresence>
+                <button onClick={onDelete} className="p-1 hover:bg-gray-100 rounded" title="Delete">
+                  <TrashIcon className="h-4 w-4 text-red-600" />
+                </button>
+              </>
+            )}
+          </motion.div>
+        )}
       </div>
     </motion.div>
   );
 };
 
-// Typing Indicator Component
+// Typing Indicator
 interface TypingIndicatorProps {
   users: string[];
 }
@@ -549,22 +558,19 @@ const TypingIndicator: React.FC<TypingIndicatorProps> = ({ users }) => {
     <motion.div
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -10 }}
-      className="px-6 py-2"
+      className="flex items-center space-x-2 text-sm text-gray-500"
     >
-      <div className="flex items-center space-x-2 text-sm text-gray-500">
-        <div className="flex space-x-1">
-          {[0, 0.2, 0.4].map((delay, i) => (
-            <motion.div
-              key={i}
-              animate={{ scale: [1, 1.2, 1] }}
-              transition={{ repeat: Infinity, duration: 0.6, delay }}
-              className="w-2 h-2 bg-gray-400 rounded-full"
-            />
-          ))}
-        </div>
-        <span>{getTypingText()}</span>
+      <div className="flex space-x-1">
+        {[0, 0.2, 0.4].map((delay, i) => (
+          <motion.div
+            key={i}
+            animate={{ scale: [1, 1.2, 1] }}
+            transition={{ repeat: Infinity, duration: 0.6, delay }}
+            className="w-2 h-2 bg-gray-400 rounded-full"
+          />
+        ))}
       </div>
+      <span>{getTypingText()}</span>
     </motion.div>
   );
 };

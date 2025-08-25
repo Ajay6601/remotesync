@@ -8,6 +8,7 @@ import ChatView from '../chat/ChatView.tsx';
 import DocumentsView from '../documents/DocumentsView.tsx';
 import TasksView from '../tasks/TasksView.tsx';
 import LoadingSpinner from '../ui/LoadingSpinner.tsx';
+import DocumentEditor from "../documents/DocumentEditor.tsx";
 
 const WorkspaceView: React.FC = () => {
   const { workspaceId } = useParams<{ workspaceId: string }>();
@@ -47,12 +48,22 @@ const WorkspaceView: React.FC = () => {
       {/* Main content */}
       <div className="flex-1 flex flex-col overflow-hidden">
         <Routes>
-          <Route path="/" element={<Navigate to={`/workspace/${workspaceId}/chat`} />} />
+          {/* Default redirect to chat */}
+          <Route path="/" element={<Navigate to={`/workspace/${workspaceId}/chat`} replace />} />
+          
+          {/* Chat routes */}
           <Route path="/chat" element={<ChatView />} />
           <Route path="/chat/:channelId" element={<ChatView />} />
+          
+          {/* Documents routes */}
           <Route path="/documents" element={<DocumentsView />} />
-          <Route path="/documents/:documentId" element={<DocumentsView />} />
+          <Route path="/documents/:documentId" element={<DocumentEditor />} />
+          
+          {/* Tasks route */}
           <Route path="/tasks" element={<TasksView />} />
+          
+          {/* Catch-all redirect */}
+          <Route path="*" element={<Navigate to={`/workspace/${workspaceId}/chat`} replace />} />
         </Routes>
       </div>
     </div>

@@ -3,8 +3,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, delete, or_, and_, func
 from pydantic import BaseModel
 from typing import List, Optional
-from datetime import datetime
-
+import uuid
+from datetime import datetime, timedelta, timezone
 from app.core.database import get_db
 from app.models.user import User
 from app.models.connection import UserConnection, ConnectionStatus
@@ -16,22 +16,6 @@ class ConnectionRequest(BaseModel):
     receiver_id: str
     message: Optional[str] = None
 
-class ConnectionResponse(BaseModel):
-    id: str
-    requester_id: str
-    receiver_id: str
-    requester_name: str
-    receiver_name: str
-    requester_avatar: Optional[str]
-    receiver_avatar: Optional[str]
-    status: str
-    message: Optional[str]
-    created_at: datetime
-    updated_at: Optional[datetime]
-
-    class Config:
-        from_attributes = True
-
 class UserSearchResponse(BaseModel):
     id: str
     username: str
@@ -39,13 +23,13 @@ class UserSearchResponse(BaseModel):
     email: str
     avatar_url: Optional[str]
     is_online: bool
-    connection_status: Optional[str]  # pending, accepted, none
+    connection_status: Optional[str]
     mutual_connections: int
 
     class Config:
         from_attributes = True
 
-@router.get("/search")
+@router.get("/search", response_model=List[UserSearchResponse])
 async def search_users(
     q: str = Query(..., min_length=2, description="Search query"),
     limit: int = Query(20, le=50),
@@ -90,42 +74,8 @@ async def search_users(
         )
         connection_status = connection_result.scalar_one_or_none()
         
-        # Count mutual connections (users connected to both)
-        mutual_count_result = await db.execute(
-            select(func.count()).select_from(
-                select(UserConnection.receiver_id).where(
-                    and_(
-                        UserConnection.requester_id == current_user.id,
-                        UserConnection.status == ConnectionStatus.ACCEPTED
-                    )
-                ).union(
-                    select(UserConnection.requester_id).where(
-                        and_(
-                            UserConnection.receiver_id == current_user.id,
-                            UserConnection.status == ConnectionStatus.ACCEPTED
-                        )
-                    )
-                ).intersect(
-                    select(UserConnection.receiver_id).where(
-                        and_(
-                            UserConnection.requester_id == user.id,
-                            UserConnection.status == ConnectionStatus.ACCEPTED
-                        )
-                    ).union(
-                        select(UserConnection.requester_id).where(
-                            and_(
-                                UserConnection.receiver_id == user.id,
-                                UserConnection.status == ConnectionStatus.ACCEPTED
-                            )
-                        )
-                    )
-                )
-            )
-        )
-        mutual_count = mutual_count_result.scalar() or 0
-        
         # Check if user is online (last activity within 5 minutes)
-        is_online = user.last_active and (datetime.utcnow() - user.last_active).seconds < 300
+        is_online = user.last_active and (datetime.now(timezone.utc)- user.last_active).seconds < 300
         
         user_responses.append(
             UserSearchResponse(
@@ -136,7 +86,7 @@ async def search_users(
                 avatar_url=user.avatar_url,
                 is_online=is_online,
                 connection_status=connection_status.value if connection_status else None,
-                mutual_connections=mutual_count
+                mutual_connections=0  # Simplified for now
             )
         )
     
@@ -209,7 +159,7 @@ async def send_connection_request(
 
 @router.get("/requests")
 async def get_connection_requests(
-    type: str = Query("received", enum=["sent", "received"]),
+    type: str = Query("received", regex="^(sent|received)$"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
@@ -295,8 +245,8 @@ async def accept_connection_request(
         .where(UserConnection.id == connection_id)
         .values(
             status=ConnectionStatus.ACCEPTED,
-            accepted_at=datetime.utcnow(),
-            updated_at=datetime.utcnow()
+            accepted_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc)
         )
     )
     await db.commit()
@@ -311,31 +261,17 @@ async def decline_connection_request(
 ):
     """Decline a connection request"""
     
-    # Get connection request
-    result = await db.execute(
-        select(UserConnection).where(
-            and_(
-                UserConnection.id == connection_id,
-                UserConnection.receiver_id == current_user.id,
-                UserConnection.status == ConnectionStatus.PENDING
-            )
-        )
-    )
-    connection = result.scalar_one_or_none()
-    
-    if not connection:
-        raise HTTPException(
-            status_code=404,
-            detail="Connection request not found"
-        )
-    
-    # Update connection status
     await db.execute(
         update(UserConnection)
-        .where(UserConnection.id == connection_id)
+        .where(
+            and_(
+                UserConnection.id == connection_id,
+                UserConnection.receiver_id == current_user.id
+            )
+        )
         .values(
             status=ConnectionStatus.DECLINED,
-            updated_at=datetime.utcnow()
+            updated_at=datetime.now(timezone.utc)
         )
     )
     await db.commit()
@@ -350,7 +286,7 @@ async def get_friends(
     """Get list of connected friends"""
     
     # Get accepted connections where current user is either requester or receiver
-    query = (
+    result = await db.execute(
         select(UserConnection, User.username, User.full_name, User.avatar_url, User.last_active)
         .where(
             and_(
@@ -361,24 +297,21 @@ async def get_friends(
                 UserConnection.status == ConnectionStatus.ACCEPTED
             )
         )
-    )
-    
-    # Join with the other user (not current user)
-    query = query.outerjoin(
-        User,
-        or_(
-            and_(
-                UserConnection.requester_id == current_user.id,
-                User.id == UserConnection.receiver_id
-            ),
-            and_(
-                UserConnection.receiver_id == current_user.id,
-                User.id == UserConnection.requester_id
+        .outerjoin(
+            User,
+            or_(
+                and_(
+                    UserConnection.requester_id == current_user.id,
+                    User.id == UserConnection.receiver_id
+                ),
+                and_(
+                    UserConnection.receiver_id == current_user.id,
+                    User.id == UserConnection.requester_id
+                )
             )
         )
-    ).order_by(User.username)
-    
-    result = await db.execute(query)
+        .order_by(User.username)
+    )
     connections_data = result.all()
     
     friends = []
@@ -387,7 +320,7 @@ async def get_friends(
         friend_id = connection.receiver_id if connection.requester_id == current_user.id else connection.requester_id
         
         # Check if online
-        is_online = last_active and (datetime.utcnow() - last_active).seconds < 300
+        is_online = last_active and (datetime.now(timezone.utc)- last_active).seconds < 300
         
         friends.append({
             "id": str(friend_id),
@@ -400,37 +333,3 @@ async def get_friends(
         })
     
     return friends
-
-@router.delete("/{connection_id}")
-async def remove_connection(
-    connection_id: str,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
-):
-    """Remove/unfriend a connection"""
-    
-    # Get connection
-    result = await db.execute(
-        select(UserConnection).where(
-            and_(
-                UserConnection.id == connection_id,
-                or_(
-                    UserConnection.requester_id == current_user.id,
-                    UserConnection.receiver_id == current_user.id
-                )
-            )
-        )
-    )
-    connection = result.scalar_one_or_none()
-    
-    if not connection:
-        raise HTTPException(
-            status_code=404,
-            detail="Connection not found"
-        )
-    
-    # Delete connection
-    await db.execute(delete(UserConnection).where(UserConnection.id == connection_id))
-    await db.commit()
-    
-    return {"message": "Connection removed"}
